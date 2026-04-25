@@ -1,11 +1,9 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
+	"id": "karmind",
+	"name": "KarMind",
+	"version": "0.1.0",
 	"minAppVersion": "0.15.0",
-	"description": "Demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
+	"description": "Knowledge management plugin based on Karpathy's compilation method — collect, compile, Q&A, backfill, and health-check your notes with LLM.",
+	"author": "KarMind",
 	"isDesktopOnly": false
 }

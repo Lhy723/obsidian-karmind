@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-sample-plugin",
-	"version": "1.0.0",
-	"description": "This is a sample plugin for Obsidian (https://obsidian.md)",
+	"name": "obsidian-karmind",
+	"version": "0.1.0",
+	"description": "Knowledge management plugin for Obsidian based on Karpathy's compilation method",
 	"main": "main.js",
 	"type": "module",
 	"scripts": {
@@ -10,20 +10,30 @@
 		"version": "node version-bump.mjs && git add manifest.json versions.json",
 		"lint": "eslint ."
 	},
-	"keywords": [],
+	"keywords": [
+		"obsidian",
+		"knowledge-management",
+		"llm",
+		"karpathy"
+	],
 	"license": "0-BSD",
 	"devDependencies": {
+		"@eslint/js": "9.30.1",
 		"@types/node": "^16.11.6",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
 		"esbuild": "0.25.5",
 		"eslint-plugin-obsidianmd": "0.1.9",
 		"globals": "14.0.0",
+		"jiti": "2.6.1",
 		"tslib": "2.4.0",
 		"typescript": "^5.8.3",
-		"typescript-eslint": "8.35.1",
-		"@eslint/js": "9.30.1",
-		"jiti": "2.6.1"
+		"typescript-eslint": "8.35.1"
 	},
 	"dependencies": {
-		"obsidian": "latest"
+		"motion": "^12.38.0",
+		"obsidian": "latest",
+		"react": "^19.2.5",
+		"react-dom": "^19.2.5"
 	}
 }

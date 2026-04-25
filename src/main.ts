@@ -1,99 +1,232 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import {Notice, Plugin, TFile, WorkspaceLeaf} from 'obsidian';
+import {KarMindSettings, DEFAULT_SETTINGS, KarMindSettingTab} from './settings';
+import {VIEW_TYPE_KARMIND} from './constants';
+import {KarMindView} from './views/karmind-view';
+import {LLMClient} from './llm/client';
+import {Compiler} from './core/compiler';
+import {QAEngine} from './core/qa-engine';
+import {BackfillEngine} from './core/backfill';
+import {HealthChecker} from './core/health-checker';
+import {Collector} from './core/collector';
+import {skillManager} from './skills/manager';
+import {summarizeSkill, listRawSkill, wikiStatsSkill, findOrphansSkill} from './skills/built-in';
+import {SessionStore} from './store/session-store';
 
-// Remember to rename these classes and interfaces!
+export default class KarMindPlugin extends Plugin {
+	private loadedAt = 0;
+	private autoCompilePaths = new Set<string>();
 
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
+	settings!: KarMindSettings;
+	llmClient!: LLMClient;
+	compiler!: Compiler;
+	qaEngine!: QAEngine;
+	backfillEngine!: BackfillEngine;
+	healthChecker!: HealthChecker;
+	collector!: Collector;
+	sessionStore!: SessionStore;
 
-	async onload() {
+	async onload(): Promise<void> {
+		this.loadedAt = Date.now();
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
+		this.llmClient = new LLMClient(this.settings);
+		this.compiler = new Compiler(this.app, this.llmClient, this.settings);
+		this.qaEngine = new QAEngine(this.app, this.llmClient, this.settings);
+		this.backfillEngine = new BackfillEngine(this.app, this.llmClient, this.settings);
+		this.healthChecker = new HealthChecker(this.app, this.llmClient, this.settings);
+		this.collector = new Collector(this.app, this.settings);
+
+		this.sessionStore = new SessionStore(this);
+		await this.sessionStore.load();
+
+		this.registerBuiltInSkills();
+
+		const savedDisabled = this.settings.disabledSkills ?? [];
+		skillManager.setDisabledIds(savedDisabled);
+
+		this.registerView(VIEW_TYPE_KARMIND, (leaf) => new KarMindView(leaf, this));
+
+		this.addRibbonIcon('brain', 'Open KarMind', () => {
+			void this.activateView();
 		});
 
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
+			id: 'open-panel',
+			name: 'Open panel',
+			callback: () => { void this.activateView(); },
+		});
+
+		this.addCommand({
+			id: 'collect-current-note',
+			name: 'Collect: mark current note as raw material',
+			callback: () => { void this.collector.collectCurrentNote(); },
+		});
+
+		this.addCommand({
+			id: 'collect-clipboard',
+			name: 'Collect: save clipboard to raw folder',
+			callback: () => { void this.collector.collectFromClipboard(); },
+		});
+
+		this.addCommand({
+			id: 'compile-raw',
+			name: 'Compile: compile all raw notes',
 			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
+				void (async () => {
+					try {
+						new Notice('Compiling raw notes...');
+						await this.compiler.compileRaw();
+						new Notice('Compilation complete!');
+						await this.activateView();
+					} catch (error) {
+						new Notice(`Compilation failed: ${error instanceof Error ? error.message : String(error)}`);
 					}
+				})();
+			},
+		});
 
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+		this.addCommand({
+			id: 'health-check',
+			name: 'Health: run wiki health check',
+			callback: () => {
+				void (async () => {
+					try {
+						new Notice('Running health check...');
+						const report = await this.healthChecker.check();
+						new Notice(`Health check complete: ${report.issues.length} issues found`);
+						await this.activateView();
+					} catch (error) {
+						new Notice(`Health check failed: ${error instanceof Error ? error.message : String(error)}`);
+					}
+				})();
+			},
+		});
+
+		this.addCommand({
+			id: 'test-llm-connection',
+			name: 'Test LLM connection',
+			callback: () => {
+				void (async () => {
+					new Notice('Testing LLM connection...');
+					const success = await this.llmClient.testConnection();
+					new Notice(success ? 'LLM connection successful!' : 'LLM connection failed. Check your settings.');
+				})();
+			},
+		});
+
+		this.addSettingTab(new KarMindSettingTab(this.app, this));
+
+		if (this.settings.autoCompile) {
+			this.registerEvent(this.app.vault.on('create', (file) => {
+				if (this.shouldAutoCompileCreatedFile(file)) {
+					void this.compileCreatedRawFile(file);
 				}
-				return false;
+			}));
+		}
+
+		if (this.settings.healthCheckInterval > 0) {
+			const intervalMs = this.settings.healthCheckInterval * 60 * 60 * 1000;
+			this.registerInterval(window.setInterval(() => {
+				void this.runScheduledHealthCheck();
+			}, intervalMs));
+		}
+	}
+
+	onunload(): void {
+		this.sessionStore?.flush();
+	}
+
+	async loadSettings(): Promise<void> {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<KarMindSettings> | null);
+	}
+
+	async saveSettings(): Promise<void> {
+		this.settings.disabledSkills = skillManager.getDisabledIds();
+		const data = (await this.loadData() as Record<string, unknown> | null) ?? {};
+		Object.assign(data, this.settings);
+		await this.saveData(data);
+		this.updateEngines();
+	}
+
+	private shouldAutoCompileCreatedFile(file: unknown): file is TFile {
+		if (!(file instanceof TFile)) return false;
+		if (file.extension !== 'md') return false;
+		if (!file.path.startsWith(this.settings.rawFolder + '/')) return false;
+		if (!this.settings.apiKey) return false;
+
+		// Obsidian can emit create-like events while rebuilding the vault after reload.
+		// Existing raw files should not trigger auto compile just because the plugin loaded.
+		if (file.stat.ctime < this.loadedAt) return false;
+		if (this.autoCompilePaths.has(file.path)) return false;
+
+		return true;
+	}
+
+	private async compileCreatedRawFile(file: TFile): Promise<void> {
+		this.autoCompilePaths.add(file.path);
+		try {
+			new Notice('New raw file detected. Auto-compiling...');
+			await this.compiler.compileSingleFile(file);
+			new Notice(`Auto-compiled ${file.basename}.`);
+		} catch (error) {
+			new Notice(`Auto-compile failed: ${formatError(error)}`);
+		} finally {
+			this.autoCompilePaths.delete(file.path);
+		}
+	}
+
+	private async runScheduledHealthCheck(): Promise<void> {
+		try {
+			const report = await this.healthChecker.check();
+			new Notice(`KarMind health check complete: ${report.issues.length} issues found`);
+		} catch (error) {
+			new Notice(`KarMind health check failed: ${formatError(error)}`);
+		}
+	}
+
+	private updateEngines(): void {
+		this.llmClient.updateSettings(this.settings);
+		this.compiler.updateSettings(this.settings);
+		this.qaEngine.updateSettings(this.settings);
+		this.backfillEngine.updateSettings(this.settings);
+		this.healthChecker.updateSettings(this.settings);
+		this.collector.updateSettings(this.settings);
+
+		this.app.workspace.getLeavesOfType(VIEW_TYPE_KARMIND).forEach((leaf) => {
+			if (leaf.view instanceof KarMindView) {
+				leaf.view.updateLLMClient(this.settings);
 			}
 		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-
 	}
 
-	onunload() {
+	private registerBuiltInSkills(): void {
+		skillManager.registerSkill(summarizeSkill);
+		skillManager.registerSkill(listRawSkill);
+		skillManager.registerSkill(wikiStatsSkill);
+		skillManager.registerSkill(findOrphansSkill);
 	}
 
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
-	}
+	async activateView(): Promise<void> {
+		const {workspace} = this.app;
 
-	async saveSettings() {
-		await this.saveData(this.settings);
+		let leaf: WorkspaceLeaf | null = null;
+		const leaves = workspace.getLeavesOfType(VIEW_TYPE_KARMIND);
+
+		if (leaves.length > 0) {
+			leaf = leaves[0] ?? null;
+		} else {
+			leaf = workspace.getRightLeaf(false);
+			if (leaf) {
+				await leaf.setViewState({type: VIEW_TYPE_KARMIND, active: true});
+			}
+		}
+
+		if (leaf) {
+			void workspace.revealLeaf(leaf);
+		}
 	}
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
-	}
-
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
-	}
-
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
-	}
+function formatError(error: unknown): string {
+	return error instanceof Error ? error.message : String(error);
 }
