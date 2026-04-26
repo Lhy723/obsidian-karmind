@@ -1,4 +1,4 @@
-import {Notice, normalizePath, Plugin, WorkspaceLeaf} from 'obsidian';
+import {Notice, normalizePath, Plugin, TFile, WorkspaceLeaf} from 'obsidian';
 import {KarMindSettings, DEFAULT_SETTINGS, KarMindSettingTab} from './settings';
 import {VIEW_TYPE_KARMIND} from './constants';
 import {KarMindView} from './views/karmind-view';
@@ -24,6 +24,8 @@ export default class KarMindPlugin extends Plugin {
 	healthChecker!: HealthChecker;
 	collector!: Collector;
 	sessionStore!: SessionStore;
+	private autoCompileRunning = false;
+	private autoCompilePending = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -133,11 +135,8 @@ export default class KarMindPlugin extends Plugin {
 		this.addSettingTab(new KarMindSettingTab(this.app, this));
 
 		this.app.workspace.onLayoutReady(() => {
-			if (!this.settings.autoCompile) return;
 			this.registerEvent(this.app.vault.on('create', (file) => {
-				if (file.path.startsWith(this.settings.rawFolder + '/')) {
-					new Notice(t(this.settings.language, 'noticeAutoCompileEnabled'));
-				}
+				void this.handleAutoCompile(file);
 			}));
 		});
 	}
@@ -196,6 +195,43 @@ export default class KarMindPlugin extends Plugin {
 		skillManager.registerSkill(listRawSkill);
 		skillManager.registerSkill(wikiStatsSkill);
 		skillManager.registerSkill(findOrphansSkill);
+	}
+
+	private async handleAutoCompile(file: unknown): Promise<void> {
+		if (!this.settings.autoCompile || !(file instanceof TFile)) return;
+		if (!file.path.startsWith(this.settings.rawFolder + '/')) return;
+
+		if (!this.hasApiKey()) {
+			new Notice(t(this.settings.language, 'autoCompileSkippedNoApiKey'));
+			return;
+		}
+
+		if (this.autoCompileRunning) {
+			this.autoCompilePending = true;
+			new Notice(t(this.settings.language, 'autoCompileQueued'));
+			return;
+		}
+
+		this.autoCompileRunning = true;
+
+		try {
+			let firstPass = true;
+			do {
+				this.autoCompilePending = false;
+				new Notice(firstPass
+					? t(this.settings.language, 'autoCompileStarted', {path: file.path})
+					: t(this.settings.language, 'autoCompileRestarted'));
+				firstPass = false;
+				await this.compiler.compileRaw();
+				new Notice(t(this.settings.language, 'autoCompileComplete'));
+			} while (this.autoCompilePending);
+			await this.activateView();
+		} catch (error) {
+			new Notice(t(this.settings.language, 'autoCompileFailed', {error: error instanceof Error ? error.message : String(error)}));
+		} finally {
+			this.autoCompileRunning = false;
+			this.autoCompilePending = false;
+		}
 	}
 
 	async activateView(): Promise<void> {
