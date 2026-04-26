@@ -1235,6 +1235,32 @@
 	padding: 8px 0;
 }
 
+.karmind-confirm-modal {
+	display: flex;
+	flex-direction: column;
+	gap: 14px;
+}
+
+.karmind-confirm-modal h2 {
+	margin: 0;
+	font-size: 18px;
+	line-height: 1.25;
+}
+
+.karmind-confirm-message {
+	margin: 0;
+	color: var(--text-muted);
+	line-height: 1.5;
+	white-space: pre-wrap;
+}
+
+.karmind-confirm-actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	margin-top: 4px;
+}
+
 @media (max-width: 520px) {
 	.karmind-header {
 		padding: 12px;

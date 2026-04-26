@@ -1,13 +1,16 @@
-import {App, PluginSettingTab, Setting} from "obsidian";
+import {App, normalizePath, PluginSettingTab, Setting} from "obsidian";
+import * as Obsidian from "obsidian";
 import KarMindPlugin from "./main";
 import {skillManager} from "./skills/manager";
 import {PermissionLevel} from "./types";
 import {type KarMindLanguage, t} from "./i18n";
+import {getSecretComponentConstructor} from "./utils/secrets";
+import {confirmAction} from "./ui/confirm";
 
 export interface KarMindSettings {
 	language: KarMindLanguage;
 	apiBaseUrl: string;
-	apiKey: string;
+	apiKeySecretId: string;
 	model: string;
 	rawFolder: string;
 	wikiFolder: string;
@@ -23,7 +26,7 @@ export interface KarMindSettings {
 export const DEFAULT_SETTINGS: KarMindSettings = {
 	language: 'zh',
 	apiBaseUrl: 'https://api.openai.com/v1',
-	apiKey: '',
+	apiKeySecretId: 'karmind-api-key',
 	model: 'gpt-4o-mini',
 	rawFolder: 'raw',
 	wikiFolder: 'wiki',
@@ -32,7 +35,7 @@ export const DEFAULT_SETTINGS: KarMindSettings = {
 	enableStreaming: false,
 	autoCompile: false,
 	healthCheckInterval: 0,
-	defaultPermission: 'enhanced',
+	defaultPermission: 'basic',
 	disabledSkills: [],
 };
 
@@ -79,14 +82,28 @@ export class KarMindSettingTab extends PluginSettingTab {
 		new Setting(containerEl)
 			.setName(t(language, 'settingsApiKeyName'))
 			.setDesc(t(language, 'settingsApiKeyDesc'))
-			.addText(text => {
-				text.inputEl.type = 'password';
-				text.setPlaceholder('sk-...')
-					.setValue(this.plugin.settings.apiKey)
-					.onChange(async (value) => {
-						this.plugin.settings.apiKey = value;
-						await this.plugin.saveSettings();
-					});
+			.then((setting) => {
+				setting.controlEl.empty();
+				const SecretComponent = getSecretComponentConstructor(Obsidian);
+				if (SecretComponent) {
+					new SecretComponent(this.app, setting.controlEl)
+						.setValue(this.plugin.settings.apiKeySecretId)
+						.onChange(async (value) => {
+							this.plugin.settings.apiKeySecretId = value || DEFAULT_SETTINGS.apiKeySecretId;
+							await this.plugin.saveSettings();
+						});
+					return;
+				}
+
+				const input = setting.controlEl.createEl('input', {
+					type: 'text',
+					value: this.plugin.settings.apiKeySecretId,
+					placeholder: DEFAULT_SETTINGS.apiKeySecretId,
+				});
+				input.addEventListener('change', () => {
+					this.plugin.settings.apiKeySecretId = input.value || DEFAULT_SETTINGS.apiKeySecretId;
+					void this.plugin.saveSettings();
+				});
 			});
 
 		new Setting(containerEl)
@@ -107,7 +124,7 @@ export class KarMindSettingTab extends PluginSettingTab {
 				.setPlaceholder('raw')
 				.setValue(this.plugin.settings.rawFolder)
 				.onChange(async (value) => {
-					this.plugin.settings.rawFolder = value;
+					this.plugin.settings.rawFolder = normalizePath(value || DEFAULT_SETTINGS.rawFolder);
 					await this.plugin.saveSettings();
 				}));
 
@@ -118,7 +135,7 @@ export class KarMindSettingTab extends PluginSettingTab {
 				.setPlaceholder('wiki')
 				.setValue(this.plugin.settings.wikiFolder)
 				.onChange(async (value) => {
-					this.plugin.settings.wikiFolder = value;
+					this.plugin.settings.wikiFolder = normalizePath(value || DEFAULT_SETTINGS.wikiFolder);
 					await this.plugin.saveSettings();
 				}));
 
@@ -207,6 +224,20 @@ export class KarMindSettingTab extends PluginSettingTab {
 				.addOption('enhanced', t(language, 'permissionEnhanced'))
 				.setValue(this.plugin.settings.defaultPermission)
 				.onChange(async (value) => {
+					if (value === 'enhanced' && this.plugin.settings.defaultPermission !== 'enhanced') {
+						const confirmed = await confirmAction(this.app, {
+							title: t(language, 'enhancedPermissionConfirmTitle'),
+							message: t(language, 'enhancedPermissionConfirmMessage'),
+							confirmLabel: t(language, 'enhancedPermissionConfirmButton'),
+							cancelLabel: t(language, 'cancel'),
+							danger: true,
+						});
+						if (!confirmed) {
+							this.display();
+							return;
+						}
+					}
+
 					this.plugin.settings.defaultPermission = value as PermissionLevel;
 					await this.plugin.saveSettings();
 				}));

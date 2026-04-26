@@ -1,11 +1,14 @@
-import {requestUrl} from 'obsidian';
+import {App, requestUrl} from 'obsidian';
 import {LLMChatRequest, LLMChatResponse, LLMMessage, LLMStreamChunk} from './types';
 import {KarMindSettings} from '../settings';
+import {getSecretValue} from '../utils/secrets';
 
 const LOG_PREFIX = '[KarMind LLM]';
+const DEBUG_LOGS = false;
 
 function log(...args: unknown[]): void {
-	console.debug(LOG_PREFIX, ...args);
+	if (!DEBUG_LOGS) return;
+	void args;
 }
 
 function logError(...args: unknown[]): void {
@@ -18,16 +21,18 @@ function truncateForError(text: string): string {
 }
 
 export class LLMClient {
+	private app: App;
 	private baseUrl: string;
-	private apiKey: string;
+	private apiKeySecretId: string;
 	private model: string;
 	private maxTokens: number;
 	private temperature: number;
 	private enableStreaming: boolean;
 
-	constructor(settings: KarMindSettings) {
+	constructor(app: App, settings: KarMindSettings) {
+		this.app = app;
 		this.baseUrl = settings.apiBaseUrl.replace(/\/+$/, '');
-		this.apiKey = settings.apiKey;
+		this.apiKeySecretId = settings.apiKeySecretId;
 		this.model = settings.model;
 		this.maxTokens = settings.maxTokens;
 		this.temperature = settings.temperature;
@@ -37,7 +42,7 @@ export class LLMClient {
 
 	updateSettings(settings: KarMindSettings): void {
 		this.baseUrl = settings.apiBaseUrl.replace(/\/+$/, '');
-		this.apiKey = settings.apiKey;
+		this.apiKeySecretId = settings.apiKeySecretId;
 		this.model = settings.model;
 		this.maxTokens = settings.maxTokens;
 		this.temperature = settings.temperature;
@@ -85,7 +90,7 @@ export class LLMClient {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${this.apiKey}`,
+				'Authorization': `Bearer ${this.getApiKey()}`,
 			},
 			body: JSON.stringify(request),
 		});
@@ -100,7 +105,7 @@ export class LLMClient {
 			method: 'POST',
 			headers: {
 				'Content-Type': 'application/json',
-				'Authorization': `Bearer ${this.apiKey}`,
+				'Authorization': `Bearer ${this.getApiKey()}`,
 			},
 			body: JSON.stringify(request),
 			signal,
@@ -158,7 +163,7 @@ private async chatStreamInternal(
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json',
-					'Authorization': `Bearer ${this.apiKey}`,
+					'Authorization': `Bearer ${this.getApiKey()}`,
 				},
 				body: JSON.stringify(request),
 				signal,
@@ -270,6 +275,14 @@ private async chatStreamInternal(
 		} catch {
 			return null;
 		}
+	}
+
+	hasApiKey(): boolean {
+		return this.getApiKey().length > 0;
+	}
+
+	private getApiKey(): string {
+		return getSecretValue(this.app, this.apiKeySecretId);
 	}
 
 	async testConnection(): Promise<boolean> {

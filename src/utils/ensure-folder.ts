@@ -1,7 +1,7 @@
-import {App, TFolder} from 'obsidian';
+import {App, normalizePath, TFolder} from 'obsidian';
 
 export async function ensureFolder(app: App, path: string): Promise<void> {
-	const segments = path.split('/').filter(Boolean);
+	const segments = normalizePath(path).split('/').filter(Boolean);
 	let current = '';
 
 	for (const segment of segments) {

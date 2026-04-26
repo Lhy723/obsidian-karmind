@@ -1,5 +1,5 @@
 import {useState, useCallback, useRef, useEffect} from 'react';
-import {Component} from 'obsidian';
+import {App, Component} from 'obsidian';
 import {ChatMessage, ChatSession, type FileOperationLog, PermissionLevel, type TaskProgress, isCommandAllowed, requiresEnhancedPermission} from '../types';
 import {LLMMessage} from '../llm/types';
 import {SessionStore} from '../store/session-store';
@@ -14,9 +14,14 @@ import {usePlugin} from './hooks';
 import {ChatArea} from './ChatArea';
 import {Header} from './Header';
 import {InputArea} from './InputArea';
+import {confirmAction} from './confirm';
 
 const LOG_PREFIX = '[KarMind View]';
-function log(...args: unknown[]): void { console.debug(LOG_PREFIX, ...args); }
+const DEBUG_LOGS = false;
+function log(...args: unknown[]): void {
+	if (!DEBUG_LOGS) return;
+	void args;
+}
 function logError(...args: unknown[]): void { console.error(LOG_PREFIX, ...args); }
 function formatErrorMessage(error: unknown, language: KarMindLanguage): string {
 	if (error instanceof Error && error.message.trim()) {
@@ -61,6 +66,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 
 	const activeSession = sessions.find(s => s.id === activeSessionId);
 	const chatMessages = activeSession?.messages ?? [];
+	const apiKeyConfigured = plugin.hasApiKey();
 
 	const pushMessage = useCallback((sessionId: string, msg: ChatMessage): number | null => {
 		const index = sessionStore.pushMessage(sessionId, msg);
@@ -83,7 +89,28 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		const command = slashCommands.current.get(commandName);
 		if (!command) return false;
 
+		if (API_COMMANDS.has(commandName) && !plugin.hasApiKey()) {
+			pushMessage(session.id, {
+				role: 'error',
+				content: t(language, 'apiKeyMissing'),
+				timestamp: Date.now(),
+			});
+			return true;
+		}
+
+		pushMessage(session.id, {role: 'user', content: input, timestamp: Date.now()});
+
 		if (requiresEnhancedPermission(commandName) && !isCommandAllowed(commandName, session.permission)) {
+			const confirmed = await confirmEnhancedPermission(plugin.app, language);
+			if (!confirmed) {
+				pushMessage(session.id, {
+					role: 'assistant',
+					content: t(language, 'operationCancelled'),
+					timestamp: Date.now(),
+				});
+				return true;
+			}
+
 			const updatedSession = sessionStore.update(session.id, {permission: 'enhanced'});
 			if (updatedSession) {
 				session = updatedSession;
@@ -96,20 +123,22 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			});
 		}
 
-		if (API_COMMANDS.has(commandName) && !plugin.settings.apiKey) {
-			pushMessage(session.id, {
-				role: 'error',
-				content: t(language, 'apiKeyMissing'),
-				timestamp: Date.now(),
-			});
-			return true;
+		if (commandName === '/compile') {
+			const confirmed = await confirmCompile(plugin.app, language);
+			if (!confirmed) {
+				pushMessage(session.id, {
+					role: 'assistant',
+					content: t(language, 'operationCancelled'),
+					timestamp: Date.now(),
+				});
+				return true;
+			}
 		}
 
-		pushMessage(session.id, {role: 'user', content: input, timestamp: Date.now()});
 		log('Executing slash command', commandName);
 		await command.execute(args, sessionStore.get(session.id) ?? session);
 		return true;
-	}, [language, plugin.settings.apiKey, pushMessage, sessionStore]);
+	}, [language, plugin, pushMessage, sessionStore]);
 
 	const createNewSession = useCallback((permission: PermissionLevel = plugin.settings.defaultPermission ?? 'basic') => {
 		const session = sessionStore.create(permission);
@@ -141,10 +170,17 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		log('Deleted session', id);
 	}, [sessionStore, sessions.length, activeSessionId]);
 
-	const changePermission = useCallback((sessionId: string, permission: PermissionLevel) => {
+	const changePermission = useCallback(async (sessionId: string, permission: PermissionLevel) => {
+		const current = sessionStore.get(sessionId)?.permission;
+		if (current === permission) return;
+		if (permission === 'enhanced') {
+			const confirmed = await confirmEnhancedPermission(plugin.app, language);
+			if (!confirmed) return;
+		}
+
 		sessionStore.update(sessionId, {permission});
 		setSessions([...sessionStore.getAll()]);
-	}, [sessionStore]);
+	}, [language, plugin.app, sessionStore]);
 
 	const getSkillContext = useCallback((): SkillContext => ({
 		app: plugin.app,
@@ -660,7 +696,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			return;
 		}
 
-		if (!plugin.settings.apiKey) {
+		if (!plugin.hasApiKey()) {
 			pushMessage(session.id, {
 				role: 'error',
 				content: t(language, 'apiKeyMissing'),
@@ -672,7 +708,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		pushMessage(session.id, {role: 'user', content: input, timestamp: Date.now()});
 		await doStreamResponse(sessionStore.get(session.id) ?? session, []);
 		suggestNextWorkflowStep(session.id, input);
-	}, [isStreaming, activeSession, plugin.settings.apiKey, pushMessage, doStreamResponse, sessionStore, runCommand, suggestNextWorkflowStep, language]);
+	}, [isStreaming, activeSession, plugin, pushMessage, doStreamResponse, sessionStore, runCommand, suggestNextWorkflowStep, language]);
 
 	const handleAcceptSuggestion = useCallback((messageIndex: number) => {
 		void (async () => {
@@ -722,7 +758,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				sessions={sessions}
 				activeSessionId={activeSessionId}
 				isStreaming={isStreaming}
-				apiKeyConfigured={!!plugin.settings.apiKey}
+				apiKeyConfigured={apiKeyConfigured}
 				onSwitchSession={switchSession}
 				onNewSession={createNewSession}
 				onDeleteSession={deleteSession}
@@ -733,7 +769,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				messages={chatMessages}
 				streamingContent={streamingContent}
 				isStreaming={isStreaming}
-				apiKeyConfigured={!!plugin.settings.apiKey}
+				apiKeyConfigured={apiKeyConfigured}
 				showStreamingOutput={showStreamingOutput}
 				markdownComponent={markdownComponent}
 				onAcceptSuggestion={handleAcceptSuggestion}
@@ -745,7 +781,9 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				onStop={handleStop}
 				isStreaming={isStreaming}
 				activePermission={activeSession?.permission ?? 'basic'}
-				onChangePermission={(p) => activeSession && changePermission(activeSession.id, p)}
+				onChangePermission={(p) => {
+					if (activeSession) void changePermission(activeSession.id, p);
+				}}
 				language={language}
 			/>
 		</div>
@@ -812,6 +850,26 @@ function appendFileOperation(fileOperations: FileOperationLog[], operation: File
 	if (fileOperations.length > 80) {
 		fileOperations.splice(0, fileOperations.length - 80);
 	}
+}
+
+function confirmCompile(app: App, language: KarMindLanguage): Promise<boolean> {
+	return confirmAction(app, {
+		title: t(language, 'compileConfirmTitle'),
+		message: t(language, 'compileConfirmMessage'),
+		confirmLabel: t(language, 'compileConfirmButton'),
+		cancelLabel: t(language, 'cancel'),
+		danger: true,
+	});
+}
+
+function confirmEnhancedPermission(app: App, language: KarMindLanguage): Promise<boolean> {
+	return confirmAction(app, {
+		title: t(language, 'enhancedPermissionConfirmTitle'),
+		message: t(language, 'enhancedPermissionConfirmMessage'),
+		confirmLabel: t(language, 'enhancedPermissionConfirmButton'),
+		cancelLabel: t(language, 'cancel'),
+		danger: true,
+	});
 }
 
 function parseCompileArgs(args: string): {force: boolean; instruction?: string} {

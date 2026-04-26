@@ -5,9 +5,6 @@ class SkillManager {
 	private disabledIds: Set<string> = new Set();
 
 	registerSkill(skill: KarMindSkill): void {
-		if (this.skills.has(skill.id)) {
-			console.warn(`Skill "${skill.id}" is already registered. Overwriting.`);
-		}
 		this.skills.set(skill.id, skill);
 	}
 

@@ -1,4 +1,4 @@
-import {Notice, Plugin, WorkspaceLeaf} from 'obsidian';
+import {Notice, normalizePath, Plugin, WorkspaceLeaf} from 'obsidian';
 import {KarMindSettings, DEFAULT_SETTINGS, KarMindSettingTab} from './settings';
 import {VIEW_TYPE_KARMIND} from './constants';
 import {KarMindView} from './views/karmind-view';
@@ -12,6 +12,8 @@ import {skillManager} from './skills/manager';
 import {summarizeSkill, listRawSkill, wikiStatsSkill, findOrphansSkill} from './skills/built-in';
 import {SessionStore} from './store/session-store';
 import {t} from './i18n';
+import {getSecretValue, setSecretValue} from './utils/secrets';
+import {confirmAction} from './ui/confirm';
 
 export default class KarMindPlugin extends Plugin {
 	settings!: KarMindSettings;
@@ -26,7 +28,7 @@ export default class KarMindPlugin extends Plugin {
 	async onload(): Promise<void> {
 		await this.loadSettings();
 
-		this.llmClient = new LLMClient(this.settings);
+		this.llmClient = new LLMClient(this.app, this.settings);
 		this.compiler = new Compiler(this.app, this.llmClient, this.settings);
 		this.qaEngine = new QAEngine(this.app, this.llmClient, this.settings);
 		this.backfillEngine = new BackfillEngine(this.app, this.llmClient, this.settings);
@@ -71,6 +73,23 @@ export default class KarMindPlugin extends Plugin {
 			callback: () => {
 				void (async () => {
 					try {
+						if (!this.hasApiKey()) {
+							new Notice(t(this.settings.language, 'apiKeyMissing'));
+							return;
+						}
+
+						const confirmed = await confirmAction(this.app, {
+							title: t(this.settings.language, 'compileConfirmTitle'),
+							message: t(this.settings.language, 'compileConfirmMessage'),
+							confirmLabel: t(this.settings.language, 'compileConfirmButton'),
+							cancelLabel: t(this.settings.language, 'cancel'),
+							danger: true,
+						});
+						if (!confirmed) {
+							new Notice(t(this.settings.language, 'operationCancelled'));
+							return;
+						}
+
 						new Notice(t(this.settings.language, 'noticeCompiling'));
 						await this.compiler.compileRaw();
 						new Notice(t(this.settings.language, 'noticeCompilationComplete'));
@@ -113,25 +132,43 @@ export default class KarMindPlugin extends Plugin {
 
 		this.addSettingTab(new KarMindSettingTab(this.app, this));
 
-		if (this.settings.autoCompile) {
+		this.app.workspace.onLayoutReady(() => {
+			if (!this.settings.autoCompile) return;
 			this.registerEvent(this.app.vault.on('create', (file) => {
 				if (file.path.startsWith(this.settings.rawFolder + '/')) {
 					new Notice(t(this.settings.language, 'noticeAutoCompileEnabled'));
 				}
 			}));
-		}
+		});
 	}
 
 	onunload(): void {
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<KarMindSettings>);
+		const data = await this.loadData() as (Partial<KarMindSettings> & {apiKey?: string}) | null;
+		const saved = data ?? {};
+		const legacyApiKey = typeof saved.apiKey === 'string' ? saved.apiKey.trim() : '';
+		delete saved.apiKey;
+
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+		this.settings.rawFolder = normalizePath(this.settings.rawFolder || DEFAULT_SETTINGS.rawFolder);
+		this.settings.wikiFolder = normalizePath(this.settings.wikiFolder || DEFAULT_SETTINGS.wikiFolder);
+
+		if (legacyApiKey) {
+			const migrated = setSecretValue(this.app, this.settings.apiKeySecretId, legacyApiKey);
+			if (migrated) {
+				await this.saveData({...saved, ...this.settings});
+			}
+		}
 	}
 
 	async saveSettings(): Promise<void> {
 		this.settings.disabledSkills = skillManager.getDisabledIds();
-		await this.saveData(this.settings);
+		const existing = await this.loadData() as Record<string, unknown> | null;
+		const next = {...(existing ?? {}), ...this.settings};
+		delete (next as {apiKey?: unknown}).apiKey;
+		await this.saveData(next);
 		this.updateEngines();
 	}
 
@@ -148,6 +185,10 @@ export default class KarMindPlugin extends Plugin {
 				leaf.view.updateLLMClient(this.settings);
 			}
 		});
+	}
+
+	hasApiKey(): boolean {
+		return getSecretValue(this.app, this.settings.apiKeySecretId).length > 0;
 	}
 
 	private registerBuiltInSkills(): void {

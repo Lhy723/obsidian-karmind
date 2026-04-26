@@ -2,8 +2,8 @@
 	"id": "karmind",
 	"name": "KarMind",
 	"version": "0.1.0",
-	"minAppVersion": "0.15.0",
-	"description": "Knowledge management plugin based on Karpathy's compilation method — collect, compile, Q&A, backfill, and health-check your notes with LLM.",
-	"author": "KarMind",
+	"minAppVersion": "1.11.4",
+	"description": "Manage notes with LLM-powered wiki compilation, Q&A, backfill, and health checks.",
+	"author": "Lhy723",
 	"isDesktopOnly": false
 }
