@@ -3,6 +3,9 @@ import {LLMClient} from '../llm/client';
 import {KarMindSettings} from '../settings';
 import {SYSTEM_PROMPT_BACKFILL} from '../constants';
 import {ensureFolder} from '../utils/ensure-folder';
+import {t} from '../i18n';
+import {type FileOperationLog} from '../types';
+import {WikiStateStore} from './wiki-state';
 
 interface BackfillAction {
 	action: 'update' | 'create';
@@ -11,25 +14,32 @@ interface BackfillAction {
 	append?: boolean;
 }
 
+interface BackfillOptions {
+	onFileOperation?: (operation: FileOperationLog) => void;
+}
+
 export class BackfillEngine {
 	private app: App;
 	private llmClient: LLMClient;
 	private settings: KarMindSettings;
+	private wikiState: WikiStateStore;
 
 	constructor(app: App, llmClient: LLMClient, settings: KarMindSettings) {
 		this.app = app;
 		this.llmClient = llmClient;
 		this.settings = settings;
+		this.wikiState = new WikiStateStore(app, settings.wikiFolder);
 	}
 
 	updateSettings(settings: KarMindSettings): void {
 		this.settings = settings;
+		this.wikiState.updateWikiFolder(settings.wikiFolder);
 	}
 
-	async backfill(content: string): Promise<string> {
+	async backfill(content: string, options: BackfillOptions = {}): Promise<string> {
 		await ensureFolder(this.app, this.settings.wikiFolder);
 
-		const wikiContext = await this.getWikiContext();
+		const wikiContext = await this.getWikiContext(options.onFileOperation);
 
 		const result = await this.llmClient.chat([
 			{role: 'system', content: SYSTEM_PROMPT_BACKFILL},
@@ -38,12 +48,49 @@ export class BackfillEngine {
 
 		const actions = this.parseActions(result);
 		if (actions.length === 0) {
-			await this.saveBackfillLog(result);
+			const logPath = await this.saveBackfillLog(result);
+			options.onFileOperation?.({
+				action: 'create',
+				path: logPath,
+				detail: t(this.settings.language, 'backfillOperationSaveLog'),
+				preview: createPreview(result),
+				timestamp: Date.now(),
+			});
+			const wikiLogAction = await this.wikiState.appendLog({
+				type: 'backfill',
+				title: 'Unstructured backfill analysis',
+				summary: 'Saved LLM backfill output as a log because no structured actions were found.',
+				touchedPages: [logPath],
+			});
+			options.onFileOperation?.({
+				action: wikiLogAction,
+				path: `${this.settings.wikiFolder}/log.md`,
+				detail: t(this.settings.language, 'compilerOperationWriteLog'),
+				timestamp: Date.now(),
+			});
 			return `Backfill analysis complete (no structured actions found, saved as log):\n\n${result}`;
 		}
 
-		const applied = await this.applyActions(actions);
-		await this.updateWikiIndex();
+		const applied = await this.applyActions(actions, options.onFileOperation);
+		const indexAction = await this.updateWikiIndex();
+		options.onFileOperation?.({
+			action: indexAction,
+			path: `${this.settings.wikiFolder}/_index.md`,
+			detail: t(this.settings.language, 'backfillOperationWriteIndex'),
+			timestamp: Date.now(),
+		});
+		const wikiLogAction = await this.wikiState.appendLog({
+			type: 'backfill',
+			title: `Applied ${applied} action(s)`,
+			summary: content.substring(0, 180).replace(/\s+/g, ' ').trim(),
+			touchedPages: actions.map(action => `${this.settings.wikiFolder}/${action.path}`),
+		});
+		options.onFileOperation?.({
+			action: wikiLogAction,
+			path: `${this.settings.wikiFolder}/log.md`,
+			detail: t(this.settings.language, 'compilerOperationWriteLog'),
+			timestamp: Date.now(),
+		});
 
 		return `Backfill applied ${applied} action(s):\n\n${actions.map(a => `- [${a.action}] ${a.path}${a.append ? ' (appended)' : ''}`).join('\n')}`;
 	}
@@ -73,18 +120,12 @@ export class BackfillEngine {
 		}
 	}
 
-	private async applyActions(actions: BackfillAction[]): Promise<number> {
+	private async applyActions(actions: BackfillAction[], onFileOperation?: (operation: FileOperationLog) => void): Promise<number> {
 		let applied = 0;
 
 		for (const action of actions) {
 			try {
-				const relativePath = normalizeWikiRelativePath(action.path);
-				if (!relativePath) {
-					console.warn(`[KarMind Backfill] Skipping unsafe wiki path:`, action.path);
-					continue;
-				}
-
-				const fullPath = `${this.settings.wikiFolder}/${relativePath}`;
+				const fullPath = `${this.settings.wikiFolder}/${action.path}`;
 
 				if (action.action === 'create') {
 					const existing = this.app.vault.getAbstractFileByPath(fullPath);
@@ -94,9 +135,23 @@ export class BackfillEngine {
 						} else {
 							await this.app.vault.modify(existing, action.content);
 						}
+						onFileOperation?.({
+							action: 'update',
+							path: fullPath,
+							detail: t(this.settings.language, 'backfillOperationUpdate'),
+							preview: createPreview(action.content),
+							timestamp: Date.now(),
+						});
 					} else {
 						await ensureFolder(this.app, fullPath.substring(0, fullPath.lastIndexOf('/')));
 						await this.app.vault.create(fullPath, action.content);
+						onFileOperation?.({
+							action: 'create',
+							path: fullPath,
+							detail: t(this.settings.language, 'backfillOperationCreate'),
+							preview: createPreview(action.content),
+							timestamp: Date.now(),
+						});
 					}
 					applied++;
 				} else if (action.action === 'update') {
@@ -107,6 +162,13 @@ export class BackfillEngine {
 						} else {
 							await this.app.vault.modify(existing, action.content);
 						}
+						onFileOperation?.({
+							action: 'update',
+							path: fullPath,
+							detail: t(this.settings.language, 'backfillOperationUpdate'),
+							preview: createPreview(action.content),
+							timestamp: Date.now(),
+						});
 						applied++;
 					}
 				}
@@ -118,9 +180,15 @@ export class BackfillEngine {
 		return applied;
 	}
 
-	private async getWikiContext(): Promise<string> {
+	private async getWikiContext(onFileOperation?: (operation: FileOperationLog) => void): Promise<string> {
 		const wikiFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/'));
+			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index' && f.basename !== 'log' && !f.path.includes('/.karmind/'));
+		onFileOperation?.({
+			action: 'scan',
+			path: this.settings.wikiFolder,
+			detail: t(this.settings.language, 'backfillOperationScanWiki'),
+			timestamp: Date.now(),
+		});
 
 		if (wikiFiles.length === 0) {
 			return 'No existing wiki pages found.';
@@ -133,7 +201,7 @@ export class BackfillEngine {
 		return `Existing wiki pages:\n${indexList}`;
 	}
 
-	private async saveBackfillLog(result: string): Promise<void> {
+	private async saveBackfillLog(result: string): Promise<string> {
 		const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 		const fileName = `backfill-${timestamp}.md`;
 		const filePath = `${this.settings.wikiFolder}/${fileName}`;
@@ -141,11 +209,12 @@ export class BackfillEngine {
 		const frontmatter = `---\nkarmind:\n  type: backfill\n  createdAt: ${Date.now()}\n---\n\n`;
 
 		await this.app.vault.create(filePath, frontmatter + result);
+		return filePath;
 	}
 
-	private async updateWikiIndex(): Promise<void> {
+	private async updateWikiIndex(): Promise<'create' | 'update'> {
 		const wikiFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/'));
+			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index' && f.basename !== 'log' && !f.path.includes('/.karmind/'));
 
 		const indexPath = `${this.settings.wikiFolder}/_index.md`;
 		const concepts: Record<string, string[]> = {};
@@ -180,16 +249,15 @@ export class BackfillEngine {
 		const existingIndex = this.app.vault.getAbstractFileByPath(indexPath);
 		if (existingIndex instanceof TFile) {
 			await this.app.vault.modify(existingIndex, indexContent);
+			return 'update';
 		} else {
 			await this.app.vault.create(indexPath, indexContent);
+			return 'create';
 		}
 	}
 }
 
-function normalizeWikiRelativePath(path: string): string | null {
-	const normalized = path.trim().replace(/\\/g, '/');
-	if (!normalized || normalized.startsWith('/') || normalized.split('/').includes('..')) {
-		return null;
-	}
-	return normalized.endsWith('.md') ? normalized : `${normalized}.md`;
+function createPreview(content: string): string {
+	const normalized = content.replace(/\s+/g, ' ').trim();
+	return normalized.length > 420 ? normalized.substring(0, 420) + '...' : normalized;
 }

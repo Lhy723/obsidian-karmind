@@ -1,13 +1,15 @@
 import {useState, useCallback, useRef, useEffect} from 'react';
 import {Component} from 'obsidian';
-import {ChatMessage, ChatSession, PermissionLevel, isCommandAllowed, getPermissionLabel, requiresEnhancedPermission} from '../types';
+import {ChatMessage, ChatSession, type FileOperationLog, PermissionLevel, type TaskProgress, isCommandAllowed, requiresEnhancedPermission} from '../types';
 import {LLMMessage} from '../llm/types';
 import {SessionStore} from '../store/session-store';
 import {LLMClient} from '../llm/client';
 import {skillManager} from '../skills/manager';
 import {SkillContext} from '../skills/types';
-import {CompileProgress} from '../core/compiler';
+import {type CompileProgress} from '../core/compiler';
+import {type HealthCheckProgress} from '../core/health-checker';
 import {SYSTEM_PROMPT_WORKFLOW_GUIDE} from '../constants';
+import {type KarMindLanguage, t} from '../i18n';
 import {usePlugin} from './hooks';
 import {ChatArea} from './ChatArea';
 import {Header} from './Header';
@@ -16,12 +18,12 @@ import {InputArea} from './InputArea';
 const LOG_PREFIX = '[KarMind View]';
 function log(...args: unknown[]): void { console.debug(LOG_PREFIX, ...args); }
 function logError(...args: unknown[]): void { console.error(LOG_PREFIX, ...args); }
-function formatErrorMessage(error: unknown): string {
+function formatErrorMessage(error: unknown, language: KarMindLanguage): string {
 	if (error instanceof Error && error.message.trim()) {
 		return error.message;
 	}
 	const text = String(error);
-	return text.trim() ? text : 'Unknown error';
+	return text.trim() ? text : t(language, 'unknownError');
 }
 
 interface SlashCommand {
@@ -31,22 +33,23 @@ interface SlashCommand {
 }
 
 const API_COMMANDS = new Set(['/compile', '/qa', '/backfill', '/health']);
-const SUGGESTION_DISMISSED = '[Suggestion dismissed]';
 
 export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessionStore: SessionStore; llmClient: LLMClient; markdownComponent: Component}) {
 	const plugin = usePlugin();
+	const language = plugin.settings.language;
 
 	const [sessions, setSessions] = useState<ChatSession[]>(() => {
 		const loaded = sessionStore.getAll();
 		if (loaded.length === 0) {
 			const s = sessionStore.create(plugin.settings.defaultPermission ?? 'basic');
+			sessionStore.update(s.id, {title: t(plugin.settings.language, 'newConversationTitle')});
 			return [s];
 		}
 		return loaded;
 	});
 
 	const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-		return sessions[0]?.id ?? '';
+		return sessionStore.getInitialSessionId() || sessions[0]?.id || '';
 	});
 
 	const [isStreaming, setIsStreaming] = useState(false);
@@ -88,7 +91,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			}
 			pushMessage(session.id, {
 				role: 'assistant',
-				content: `Permission request accepted: this conversation is now ${getPermissionLabel('enhanced')} because ${commandName} needs file operations.`,
+				content: t(language, 'permissionAccepted', {command: commandName}),
 				timestamp: Date.now(),
 			});
 		}
@@ -96,7 +99,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		if (API_COMMANDS.has(commandName) && !plugin.settings.apiKey) {
 			pushMessage(session.id, {
 				role: 'error',
-				content: 'LLM API key not configured. Go to Settings > KarMind to set it up.',
+				content: t(language, 'apiKeyMissing'),
 				timestamp: Date.now(),
 			});
 			return true;
@@ -106,20 +109,22 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		log('Executing slash command', commandName);
 		await command.execute(args, sessionStore.get(session.id) ?? session);
 		return true;
-	}, [plugin.settings.apiKey, pushMessage, sessionStore]);
+	}, [language, plugin.settings.apiKey, pushMessage, sessionStore]);
 
 	const createNewSession = useCallback((permission: PermissionLevel = plugin.settings.defaultPermission ?? 'basic') => {
 		const session = sessionStore.create(permission);
+		sessionStore.update(session.id, {title: t(language, 'newConversationTitle')});
 		setSessions([...sessionStore.getAll()]);
 		setActiveSessionId(session.id);
 		log('Created new session', session.id);
-	}, [sessionStore, plugin.settings.defaultPermission]);
+	}, [language, sessionStore, plugin.settings.defaultPermission]);
 
 	const switchSession = useCallback((id: string) => {
 		if (isStreaming) return;
+		sessionStore.setLastActiveSession(id);
 		setActiveSessionId(id);
 		log('Switched to session', id);
-	}, [isStreaming]);
+	}, [isStreaming, sessionStore]);
 
 	const deleteSession = useCallback((id: string) => {
 		if (sessions.length <= 1) return;
@@ -127,7 +132,11 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		const newSessions = sessionStore.getAll();
 		setSessions(newSessions);
 		if (activeSessionId === id) {
-			setActiveSessionId(newSessions[0]?.id ?? '');
+			const nextSessionId = sessionStore.getInitialSessionId() || newSessions[0]?.id || '';
+			if (nextSessionId) {
+				sessionStore.setLastActiveSession(nextSessionId);
+			}
+			setActiveSessionId(nextSessionId);
 		}
 		log('Deleted session', id);
 	}, [sessionStore, sessions.length, activeSessionId]);
@@ -149,18 +158,43 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		const cmds = slashCommands.current;
 		cmds.set('/compile', {
 			name: '/compile',
-			description: 'Compile raw notes into wiki pages',
+			description: t(language, 'commandDescCompile'),
 			execute: async (args, session) => {
 				const controller = new AbortController();
 				abortRef.current = controller;
 				setIsStreaming(true);
 				setShowStreamingOutput(false);
 				setStreamingContent('');
+				const fileOperations: FileOperationLog[] = [];
+				let currentTaskProgress: TaskProgress = {
+					kind: 'compile',
+					title: t(language, 'taskCompileTitle'),
+					status: 'running',
+					message: t(language, 'compilePreparing'),
+					completed: 0,
+					total: 0,
+					startedAt: Date.now(),
+					updatedAt: Date.now(),
+					fileOperations,
+				};
 				const progressMessageIndex = pushMessage(session.id, {
 					role: 'assistant',
-					content: 'Compile progress: preparing...',
+					content: t(language, 'compilePreparing'),
 					timestamp: Date.now(),
+					taskProgress: currentTaskProgress,
 				});
+				const recordFileOperation = (operation: FileOperationLog) => {
+					appendFileOperation(fileOperations, operation);
+					currentTaskProgress = {
+						...currentTaskProgress,
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						taskProgress: currentTaskProgress,
+						timestamp: Date.now(),
+					});
+				};
 				try {
 					log('Starting compilation');
 					const {force, instruction} = parseCompileArgs(args);
@@ -168,29 +202,66 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 						instruction,
 						force,
 						signal: controller.signal,
+						onFileOperation: recordFileOperation,
 						onProgress: (progress) => {
+							currentTaskProgress = {
+								...formatCompileTaskProgress(progress, language),
+								fileOperations: [...fileOperations],
+							};
 							updateMessage(session.id, progressMessageIndex, {
 								role: progress.phase === 'file-error' ? 'error' : 'assistant',
-								content: formatCompileProgress(progress),
+								content: formatCompileProgress(progress, language),
 								timestamp: Date.now(),
+								taskProgress: currentTaskProgress,
 							});
 						},
 					});
-					updateMessage(session.id, progressMessageIndex, {role: 'assistant', content: result, timestamp: Date.now()});
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'success',
+						message: t(language, 'compilerCompilationComplete'),
+						completed: 1,
+						total: 1,
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						role: 'assistant',
+						content: result,
+						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
+					});
 				} catch (error) {
 					if (isAbortError(error)) {
+						currentTaskProgress = {
+							...currentTaskProgress,
+							status: 'stopped',
+							message: t(language, 'compileStopped'),
+							fileOperations: [...fileOperations],
+							updatedAt: Date.now(),
+						};
 						updateMessage(session.id, progressMessageIndex, {
 							role: 'assistant',
-							content: 'Compilation stopped by user. Completed files remain in the wiki; the current unfinished file was not marked compiled.',
+							content: t(language, 'compileStopped'),
 							timestamp: Date.now(),
+							taskProgress: currentTaskProgress,
 						});
 						return;
 					}
 					logError('Compilation failed', error);
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'error',
+						message: t(language, 'compileFailed', {error: formatErrorMessage(error, language)}),
+						error: formatErrorMessage(error, language),
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
 					updateMessage(session.id, progressMessageIndex, {
 						role: 'error',
-						content: `Compilation failed: ${formatErrorMessage(error)}`,
+						content: t(language, 'compileFailed', {error: formatErrorMessage(error, language)}),
 						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
 					});
 				} finally {
 					setIsStreaming(false);
@@ -203,68 +274,261 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		});
 		cmds.set('/qa', {
 			name: '/qa',
-			description: 'Ask a question about your knowledge base',
+			description: t(language, 'commandDescQa'),
 			execute: async (args, session) => {
+				const fileOperations: FileOperationLog[] = [];
+				let currentTaskProgress: TaskProgress = {
+					kind: 'qa',
+					title: t(language, 'taskQaTitle'),
+					status: 'running',
+					message: t(language, 'qaProgressRetrieving'),
+					startedAt: Date.now(),
+					updatedAt: Date.now(),
+					fileOperations,
+				};
+				const progressMessageIndex = pushMessage(session.id, {
+					role: 'assistant',
+					content: t(language, 'qaProgressRetrieving'),
+					timestamp: Date.now(),
+					taskProgress: currentTaskProgress,
+				});
+				const recordFileOperation = (operation: FileOperationLog) => {
+					appendFileOperation(fileOperations, operation);
+					currentTaskProgress = {
+						...currentTaskProgress,
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						taskProgress: currentTaskProgress,
+						timestamp: Date.now(),
+					});
+				};
 				try {
 					log('Getting wiki context for QA');
-					const wikiContext = await plugin.qaEngine.getRelevantContext(args);
+					const wikiContext = await plugin.qaEngine.getRelevantContext(args, {
+						onFileOperation: recordFileOperation,
+					});
 					log('Wiki context retrieved', {contextCount: wikiContext.length});
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'success',
+						message: t(language, 'qaProgressComplete'),
+						completed: 1,
+						total: 1,
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						role: 'assistant',
+						content: t(language, 'qaProgressComplete'),
+						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
+					});
 					await doStreamResponse(session, wikiContext);
 				} catch (error) {
 					logError('QA context retrieval failed', error);
-					pushMessage(session.id, {role: 'error', content: `Failed to retrieve wiki context: ${formatErrorMessage(error)}`, timestamp: Date.now()});
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'error',
+						message: t(language, 'qaContextFailed', {error: formatErrorMessage(error, language)}),
+						error: formatErrorMessage(error, language),
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						role: 'error',
+						content: t(language, 'qaContextFailed', {error: formatErrorMessage(error, language)}),
+						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
+					});
 				}
 			},
 		});
 		cmds.set('/backfill', {
 			name: '/backfill',
-			description: 'Archive content back into the wiki',
+			description: t(language, 'commandDescBackfill'),
 			execute: async (args, session) => {
+				const fileOperations: FileOperationLog[] = [];
+				let currentTaskProgress: TaskProgress = {
+					kind: 'backfill',
+					title: t(language, 'taskBackfillTitle'),
+					status: 'running',
+					message: t(language, 'backfillProgressAnalyzing'),
+					startedAt: Date.now(),
+					updatedAt: Date.now(),
+					fileOperations,
+				};
+				const progressMessageIndex = pushMessage(session.id, {
+					role: 'assistant',
+					content: t(language, 'backfillProgressAnalyzing'),
+					timestamp: Date.now(),
+					taskProgress: currentTaskProgress,
+				});
+				const recordFileOperation = (operation: FileOperationLog) => {
+					appendFileOperation(fileOperations, operation);
+					currentTaskProgress = {
+						...currentTaskProgress,
+						message: t(language, 'backfillProgressApplying'),
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						content: t(language, 'backfillProgressApplying'),
+						taskProgress: currentTaskProgress,
+						timestamp: Date.now(),
+					});
+				};
 				try {
 					log('Starting backfill');
-					const result = await plugin.backfillEngine.backfill(args);
-					pushMessage(session.id, {role: 'assistant', content: result, timestamp: Date.now()});
+					const result = await plugin.backfillEngine.backfill(args, {
+						onFileOperation: recordFileOperation,
+					});
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'success',
+						message: t(language, 'backfillProgressComplete'),
+						completed: 1,
+						total: 1,
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						role: 'assistant',
+						content: result,
+						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
+					});
 				} catch (error) {
 					logError('Backfill failed', error);
-					pushMessage(session.id, {role: 'error', content: `Backfill failed: ${formatErrorMessage(error)}`, timestamp: Date.now()});
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'error',
+						message: t(language, 'backfillFailed', {error: formatErrorMessage(error, language)}),
+						error: formatErrorMessage(error, language),
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						role: 'error',
+						content: t(language, 'backfillFailed', {error: formatErrorMessage(error, language)}),
+						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
+					});
 				}
 			},
 		});
 		cmds.set('/health', {
 			name: '/health',
-			description: 'Run a health check on your wiki',
+			description: t(language, 'commandDescHealth'),
 			execute: async (_args, session) => {
+				const fileOperations: FileOperationLog[] = [];
+				let currentTaskProgress: TaskProgress = {
+					kind: 'health',
+					title: t(language, 'taskHealthTitle'),
+					status: 'running',
+					message: t(language, 'healthProgressScanning'),
+					completed: 0,
+					total: 5,
+					startedAt: Date.now(),
+					updatedAt: Date.now(),
+					fileOperations,
+				};
+				const progressMessageIndex = pushMessage(session.id, {
+					role: 'assistant',
+					content: t(language, 'healthProgressScanning'),
+					timestamp: Date.now(),
+					taskProgress: currentTaskProgress,
+				});
+				const recordFileOperation = (operation: FileOperationLog) => {
+					appendFileOperation(fileOperations, operation);
+					currentTaskProgress = {
+						...currentTaskProgress,
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						taskProgress: currentTaskProgress,
+						timestamp: Date.now(),
+					});
+				};
 				try {
 					log('Starting health check');
-					const report = await plugin.healthChecker.check();
-					pushMessage(session.id, {role: 'assistant', content: report.summary, timestamp: Date.now()});
+					const report = await plugin.healthChecker.check({
+						onFileOperation: recordFileOperation,
+						onProgress: (progress) => {
+							currentTaskProgress = {
+								...formatHealthTaskProgress(progress, language),
+								fileOperations: [...fileOperations],
+							};
+							updateMessage(session.id, progressMessageIndex, {
+								role: 'assistant',
+								content: formatHealthProgress(progress, language),
+								timestamp: Date.now(),
+								taskProgress: currentTaskProgress,
+							});
+						},
+					});
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'success',
+						message: t(language, 'healthProgressComplete'),
+						completed: 5,
+						total: 5,
+						fileOperations: [...fileOperations],
+						healthReport: {
+							timestamp: report.timestamp,
+							totalPages: report.totalPages,
+							issues: report.issues,
+						},
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						role: 'assistant',
+						content: report.summary,
+						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
+					});
 				} catch (error) {
 					logError('Health check failed', error);
-					pushMessage(session.id, {role: 'error', content: `Health check failed: ${formatErrorMessage(error)}`, timestamp: Date.now()});
+					currentTaskProgress = {
+						...currentTaskProgress,
+						status: 'error',
+						message: t(language, 'healthFailed', {error: formatErrorMessage(error, language)}),
+						error: formatErrorMessage(error, language),
+						fileOperations: [...fileOperations],
+						updatedAt: Date.now(),
+					};
+					updateMessage(session.id, progressMessageIndex, {
+						role: 'error',
+						content: t(language, 'healthFailed', {error: formatErrorMessage(error, language)}),
+						timestamp: Date.now(),
+						taskProgress: currentTaskProgress,
+					});
 				}
 			},
 		});
 		cmds.set('/skills', {
 			name: '/skills',
-			description: 'List all skills and their status',
+			description: t(language, 'commandDescSkills'),
 			execute: async (_args, session) => {
 				const skills = skillManager.getAllSkills();
 				const lines = skills.map(s => {
-					const status = skillManager.isEnabled(s.id) ? 'enabled' : 'disabled';
+					const status = skillManager.isEnabled(s.id) ? t(language, 'skillEnabled') : t(language, 'skillDisabled');
 					return `  ${s.name} (${s.id}) [${status}] -- ${s.description}`;
 				});
-				pushMessage(session.id, {role: 'assistant', content: `Available skills:\n\n${lines.join('\n')}`, timestamp: Date.now()});
+				pushMessage(session.id, {role: 'assistant', content: `${t(language, 'availableSkills')}\n\n${lines.join('\n')}`, timestamp: Date.now()});
 			},
 		});
 		cmds.set('/skill', {
 			name: '/skill',
-			description: 'Execute a skill by ID',
+			description: t(language, 'commandDescSkill'),
 			execute: async (args, session) => {
 				const parts = args.split(/\s+/);
 				const skillId = parts[0];
 				const skillArgs = parts.slice(1);
 				if (!skillId) {
-					pushMessage(session.id, {role: 'error', content: 'Usage: /skill <id> [args...]', timestamp: Date.now()});
+					pushMessage(session.id, {role: 'error', content: t(language, 'usageSkill'), timestamp: Date.now()});
 					return;
 				}
 				const result = await skillManager.executeSkill(skillId, getSkillContext(), ...skillArgs);
@@ -273,19 +537,19 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		});
 		cmds.set('/help', {
 			name: '/help',
-			description: 'List available slash commands',
+			description: t(language, 'commandDescHelp'),
 			execute: async (_args, session) => {
-				const lines: string[] = ['Available commands:', ''];
+				const lines: string[] = [t(language, 'availableCommands'), ''];
 				for (const [, cmd] of cmds) {
 					lines.push(`  ${cmd.name} -- ${cmd.description}`);
 				}
-				lines.push('', 'Or just type a message to chat with the LLM.');
+				lines.push('', t(language, 'orChat'));
 				pushMessage(session.id, {role: 'assistant', content: lines.join('\n'), timestamp: Date.now()});
 			},
 		});
 		cmds.set('/clear', {
 			name: '/clear',
-			description: 'Clear current conversation',
+			description: t(language, 'commandDescClear'),
 			execute: async (_args, session) => {
 				sessionStore.update(session.id, {messages: []});
 				setSessions([...sessionStore.getAll()]);
@@ -293,12 +557,12 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		});
 		cmds.set('/new', {
 			name: '/new',
-			description: 'Start a new conversation',
+			description: t(language, 'commandDescNew'),
 			execute: async (_args, session) => {
 				createNewSession(session.permission);
 			},
 		});
-	}, [plugin, sessionStore, pushMessage, updateMessage, getSkillContext, createNewSession]);
+	}, [plugin, sessionStore, pushMessage, updateMessage, getSkillContext, createNewSession, language]);
 
 	const flushStreamBuffer = useCallback(() => {
 		setStreamingContent(streamBufferRef.current);
@@ -324,7 +588,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			.map(m => ({role: m.role as 'user' | 'assistant', content: m.content}));
 
 		const messages = [
-			{role: 'system' as const, content: SYSTEM_PROMPT_WORKFLOW_GUIDE},
+			{role: 'system' as const, content: `${SYSTEM_PROMPT_WORKFLOW_GUIDE}\n\n${t(language, 'workflowLanguageInstruction')}`},
 			...contextMessages,
 			...systemMessages,
 			...conversationMessages,
@@ -350,7 +614,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				setStreamingContent('');
 				streamBufferRef.current = '';
 				abortRef.current = null;
-				pushMessage(session.id, {role: 'assistant', content: fullContent, timestamp: Date.now()});
+				pushMessage(session.id, {role: 'assistant', content: normalizeAssistantWorkflowCommands(fullContent, language), timestamp: Date.now()});
 				log('Stream completed', {contentLength: fullContent.length});
 			},
 			(error: Error) => {
@@ -362,24 +626,24 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				setStreamingContent('');
 				streamBufferRef.current = '';
 				abortRef.current = null;
-				pushMessage(session.id, {role: 'error', content: `LLM error: ${formatErrorMessage(error)}`, timestamp: Date.now()});
+				pushMessage(session.id, {role: 'error', content: t(language, 'llmError', {error: formatErrorMessage(error, language)}), timestamp: Date.now()});
 				logError('Stream error', error);
 			},
 			controller.signal,
 		);
-	}, [llmClient, pushMessage, flushStreamBuffer]);
+	}, [language, llmClient, pushMessage, flushStreamBuffer]);
 
 	const suggestNextWorkflowStep = useCallback((sessionId: string, input: string) => {
-		const suggestion = inferWorkflowSuggestion(input, sessionStore.get(sessionId));
+		const suggestion = inferWorkflowSuggestion(input, sessionStore.get(sessionId), language);
 		if (!suggestion) return;
 
 		pushMessage(sessionId, {
 			role: 'suggestion',
-			content: `${suggestion.description}\n\nCommand: ${suggestion.command}`,
+			content: `${suggestion.description}\n\n${t(language, 'commandLabel')}: ${suggestion.command}`,
 			timestamp: Date.now(),
 			suggestion,
 		});
-	}, [pushMessage, sessionStore]);
+	}, [language, pushMessage, sessionStore]);
 
 	const handleSend = useCallback(async (input: string) => {
 		if (!input.trim() || isStreaming) return;
@@ -387,6 +651,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		let session = activeSession;
 		if (!session) {
 			session = sessionStore.create(plugin.settings.defaultPermission ?? 'basic');
+			sessionStore.update(session.id, {title: t(language, 'newConversationTitle')});
 			setSessions([...sessionStore.getAll()]);
 			setActiveSessionId(session.id);
 		}
@@ -398,7 +663,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		if (!plugin.settings.apiKey) {
 			pushMessage(session.id, {
 				role: 'error',
-				content: 'LLM API key not configured. Go to Settings > KarMind to set it up.',
+				content: t(language, 'apiKeyMissing'),
 				timestamp: Date.now(),
 			});
 			return;
@@ -407,7 +672,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		pushMessage(session.id, {role: 'user', content: input, timestamp: Date.now()});
 		await doStreamResponse(sessionStore.get(session.id) ?? session, []);
 		suggestNextWorkflowStep(session.id, input);
-	}, [isStreaming, activeSession, plugin.settings.apiKey, pushMessage, doStreamResponse, sessionStore, runCommand, suggestNextWorkflowStep]);
+	}, [isStreaming, activeSession, plugin.settings.apiKey, pushMessage, doStreamResponse, sessionStore, runCommand, suggestNextWorkflowStep, language]);
 
 	const handleAcceptSuggestion = useCallback((messageIndex: number) => {
 		void (async () => {
@@ -418,13 +683,13 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 
 			updateMessage(session.id, messageIndex, {
 				role: 'assistant',
-				content: `Approved workflow action: ${suggestion.command}`,
+				content: t(language, 'approvedAction', {command: suggestion.command}),
 				suggestion: undefined,
 				timestamp: Date.now(),
 			});
 			await runCommand(suggestion.command, sessionStore.get(session.id) ?? session);
 		})();
-	}, [activeSession, isStreaming, runCommand, sessionStore, updateMessage]);
+	}, [activeSession, isStreaming, runCommand, sessionStore, updateMessage, language]);
 
 	const handleDismissSuggestion = useCallback((messageIndex: number) => {
 		const session = activeSession;
@@ -433,11 +698,11 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 
 		updateMessage(session.id, messageIndex, {
 			role: 'assistant',
-			content: SUGGESTION_DISMISSED,
+			content: t(language, 'suggestionDismissed'),
 			suggestion: undefined,
 			timestamp: Date.now(),
 		});
-	}, [activeSession, updateMessage]);
+	}, [activeSession, updateMessage, language]);
 
 	const handleStop = useCallback(() => {
 		abortRef.current?.abort();
@@ -461,8 +726,8 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				onSwitchSession={switchSession}
 				onNewSession={createNewSession}
 				onDeleteSession={deleteSession}
-				activePermission={activeSession?.permission ?? 'basic'}
-				onChangePermission={(p) => activeSession && changePermission(activeSession.id, p)}
+				defaultPermission={activeSession?.permission ?? plugin.settings.defaultPermission ?? 'basic'}
+				language={language}
 			/>
 			<ChatArea
 				messages={chatMessages}
@@ -473,33 +738,80 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				markdownComponent={markdownComponent}
 				onAcceptSuggestion={handleAcceptSuggestion}
 				onDismissSuggestion={handleDismissSuggestion}
+				language={language}
 			/>
 			<InputArea
 				onSend={(value) => { void handleSend(value); }}
 				onStop={handleStop}
 				isStreaming={isStreaming}
+				activePermission={activeSession?.permission ?? 'basic'}
+				onChangePermission={(p) => activeSession && changePermission(activeSession.id, p)}
+				language={language}
 			/>
 		</div>
 	);
 }
 
-function formatCompileProgress(progress: CompileProgress): string {
+function formatCompileProgress(progress: CompileProgress, language: KarMindLanguage): string {
 	const lines = [
-		`Compile progress: ${progress.completed}/${progress.total}`,
-		`Status: ${progress.message ?? progress.phase}`,
+		t(language, 'compileProgress', {completed: progress.completed, total: progress.total}),
+		t(language, 'status', {status: progress.message ?? progress.phase}),
 	];
 
 	if (progress.currentPath) {
-		lines.push(`Current raw: ${progress.currentPath}`);
+		lines.push(t(language, 'currentRaw', {path: progress.currentPath}));
 	}
 	if (progress.wikiPath) {
-		lines.push(`Target wiki: ${progress.wikiPath}`);
+		lines.push(t(language, 'targetWiki', {path: progress.wikiPath}));
 	}
 	if (progress.error) {
-		lines.push(`Error: ${progress.error}`);
+		lines.push(t(language, 'error', {error: progress.error}));
 	}
 
 	return lines.join('\n');
+}
+
+function formatCompileTaskProgress(progress: CompileProgress, language: KarMindLanguage): TaskProgress {
+	const status = progress.phase === 'file-error' ? 'error' : progress.phase === 'complete' ? 'success' : 'running';
+	return {
+		kind: 'compile',
+		title: t(language, 'taskCompileTitle'),
+		status,
+		message: progress.message ?? progress.phase,
+		completed: progress.completed,
+		total: progress.total,
+		currentPath: progress.currentPath,
+		targetPath: progress.wikiPath,
+		error: progress.error,
+		updatedAt: Date.now(),
+	};
+}
+
+function formatHealthProgress(progress: HealthCheckProgress, language: KarMindLanguage): string {
+	return [
+		t(language, 'taskHealthTitle'),
+		t(language, 'status', {status: progress.message}),
+		t(language, 'taskProgressSteps', {completed: progress.completed, total: progress.total}),
+	].join('\n');
+}
+
+function formatHealthTaskProgress(progress: HealthCheckProgress, language: KarMindLanguage): TaskProgress {
+	return {
+		kind: 'health',
+		title: t(language, 'taskHealthTitle'),
+		status: progress.phase === 'complete' ? 'success' : 'running',
+		message: progress.message,
+		completed: progress.completed,
+		total: progress.total,
+		updatedAt: Date.now(),
+	};
+}
+
+function appendFileOperation(fileOperations: FileOperationLog[], operation: FileOperationLog): void {
+	fileOperations.push(operation);
+	if (fileOperations.length > 80) {
+		fileOperations.splice(0, fileOperations.length - 80);
+	}
 }
 
 function parseCompileArgs(args: string): {force: boolean; instruction?: string} {
@@ -508,7 +820,7 @@ function parseCompileArgs(args: string): {force: boolean; instruction?: string} 
 	return {force, instruction: instruction || undefined};
 }
 
-function inferWorkflowSuggestion(input: string, session: ChatSession | undefined) {
+function inferWorkflowSuggestion(input: string, session: ChatSession | undefined, language: KarMindLanguage) {
 	const normalized = input.toLowerCase();
 	if (!session) return null;
 	const hasSuggestion = session.messages.some(message => message.role === 'suggestion' && message.suggestion);
@@ -517,8 +829,8 @@ function inferWorkflowSuggestion(input: string, session: ChatSession | undefined
 	if (/(刚|新|加入|收集|导入|clip|raw|素材|网页|文章|论文|资料)/i.test(input)) {
 		return {
 			command: '/compile',
-			label: 'Compile raw notes',
-			description: 'I found this looks like newly collected material. The next KarMind workflow step is to compile raw notes into wiki pages.',
+			label: t(language, 'suggestCompileLabel'),
+			description: t(language, 'suggestCompileDesc'),
 			requiresConfirmation: true,
 		};
 	}
@@ -526,8 +838,8 @@ function inferWorkflowSuggestion(input: string, session: ChatSession | undefined
 	if (/(检查|健康|断链|孤立|缺失|重复|health|orphan|broken)/i.test(normalized)) {
 		return {
 			command: '/health',
-			label: 'Run health check',
-			description: 'This looks like a knowledge-base maintenance request. I can run a wiki health check and report broken links, orphan pages, and missing areas.',
+			label: t(language, 'suggestHealthLabel'),
+			description: t(language, 'suggestHealthDesc'),
 			requiresConfirmation: true,
 		};
 	}
@@ -535,8 +847,8 @@ function inferWorkflowSuggestion(input: string, session: ChatSession | undefined
 	if (/(保存|归档|回填|写入 wiki|backfill|archive)/i.test(normalized)) {
 		return {
 			command: `/backfill ${input}`,
-			label: 'Backfill to wiki',
-			description: 'This looks like an insight worth preserving. I can backfill it into the wiki after you approve.',
+			label: t(language, 'suggestBackfillLabel'),
+			description: t(language, 'suggestBackfillDesc'),
 			requiresConfirmation: true,
 		};
 	}
@@ -544,13 +856,29 @@ function inferWorkflowSuggestion(input: string, session: ChatSession | undefined
 	if (/(问|解释|总结|为什么|如何|怎么|what|why|how)/i.test(normalized)) {
 		return {
 			command: `/qa ${input}`,
-			label: 'Ask wiki',
-			description: 'This looks like a question that may benefit from wiki context. I can answer it using the compiled knowledge base.',
+			label: t(language, 'suggestQaLabel'),
+			description: t(language, 'suggestQaDesc'),
 			requiresConfirmation: true,
 		};
 	}
 
 	return null;
+}
+
+function normalizeAssistantWorkflowCommands(content: string, language: KarMindLanguage): string {
+	let normalized = content
+		.replace(/\bkarmind\s+compile\b/gi, '/compile')
+		.replace(/\bkarmind\s+health-check\b/gi, '/health')
+		.replace(/\bkarmind\s+health\b/gi, '/health')
+		.replace(/\bkarmind\s+qa\b/gi, '/qa')
+		.replace(/\bkarmind\s+backfill\b/gi, '/backfill')
+		.replace(/\bkarmind\s+skills\b/gi, '/skills');
+
+	if (/\bkarmind\s+fix-links\b|\bfix-links\b/i.test(normalized)) {
+		normalized += `\n\n> ${t(language, 'unsupportedFixLinksNote')}`;
+	}
+
+	return normalized;
 }
 
 function isAbortError(error: unknown): boolean {

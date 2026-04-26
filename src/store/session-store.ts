@@ -1,11 +1,13 @@
 import {ChatSession} from '../types';
 
 const STORAGE_KEY = 'karmind-sessions';
+const LAST_ACTIVE_SESSION_KEY = 'karmind-last-active-session';
 const MAX_SESSIONS = 50;
 
 export class SessionStore {
 	private plugin: {loadData: () => Promise<unknown>; saveData: (data: unknown) => Promise<void>};
 	private sessions: ChatSession[] = [];
+	private lastActiveSessionId = '';
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 	constructor(plugin: {loadData: () => Promise<unknown>; saveData: (data: unknown) => Promise<void>}) {
@@ -26,8 +28,15 @@ export class SessionStore {
 			} else {
 				this.sessions = [];
 			}
+			this.lastActiveSessionId = typeof data?.[LAST_ACTIVE_SESSION_KEY] === 'string'
+				? data[LAST_ACTIVE_SESSION_KEY]
+				: '';
+			if (this.lastActiveSessionId && !this.get(this.lastActiveSessionId)) {
+				this.lastActiveSessionId = '';
+			}
 		} catch {
 			this.sessions = [];
+			this.lastActiveSessionId = '';
 		}
 		return this.sessions;
 	}
@@ -40,6 +49,27 @@ export class SessionStore {
 		return this.sessions.find(s => s.id === id);
 	}
 
+	getLastActiveSessionId(): string {
+		return this.lastActiveSessionId;
+	}
+
+	getInitialSessionId(): string {
+		if (this.lastActiveSessionId && this.get(this.lastActiveSessionId)) {
+			return this.lastActiveSessionId;
+		}
+
+		return this.sessions.reduce<ChatSession | null>((latest, session) => {
+			if (!latest || session.updatedAt > latest.updatedAt) return session;
+			return latest;
+		}, null)?.id ?? '';
+	}
+
+	setLastActiveSession(id: string): void {
+		if (!this.get(id)) return;
+		this.lastActiveSessionId = id;
+		this.debouncedSave();
+	}
+
 	create(permission: ChatSession['permission'] = 'basic'): ChatSession {
 		const session: ChatSession = {
 			id: 'session-' + Date.now(),
@@ -50,6 +80,7 @@ export class SessionStore {
 			permission,
 		};
 		this.sessions.push(session);
+		this.lastActiveSessionId = session.id;
 		this.debouncedSave();
 		return session;
 	}
@@ -67,6 +98,9 @@ export class SessionStore {
 		const idx = this.sessions.findIndex(s => s.id === id);
 		if (idx === -1) return false;
 		this.sessions.splice(idx, 1);
+		if (this.lastActiveSessionId === id) {
+			this.lastActiveSessionId = this.getInitialSessionId();
+		}
 		this.debouncedSave();
 		return true;
 	}
@@ -100,6 +134,9 @@ export class SessionStore {
 		if (this.sessions.length <= MAX_SESSIONS) return;
 		this.sessions.sort((a, b) => b.updatedAt - a.updatedAt);
 		this.sessions = this.sessions.slice(0, MAX_SESSIONS);
+		if (this.lastActiveSessionId && !this.get(this.lastActiveSessionId)) {
+			this.lastActiveSessionId = this.getInitialSessionId();
+		}
 		this.debouncedSave();
 	}
 
@@ -122,6 +159,7 @@ export class SessionStore {
 		try {
 			const data = (await this.plugin.loadData() as Record<string, unknown>) ?? {};
 			data[STORAGE_KEY] = this.sessions;
+			data[LAST_ACTIVE_SESSION_KEY] = this.lastActiveSessionId;
 			await this.plugin.saveData(data);
 			this.saveTimer = null;
 		} catch (err) {

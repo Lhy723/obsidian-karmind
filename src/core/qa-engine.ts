@@ -2,6 +2,12 @@ import {App, TFile, TFolder} from 'obsidian';
 import {LLMClient} from '../llm/client';
 import {KarMindSettings} from '../settings';
 import {SYSTEM_PROMPT_QA} from '../constants';
+import {t} from '../i18n';
+import {type FileOperationLog} from '../types';
+
+interface QAContextOptions {
+	onFileOperation?: (operation: FileOperationLog) => void;
+}
 
 export class QAEngine {
 	private app: App;
@@ -18,8 +24,14 @@ export class QAEngine {
 		this.settings = settings;
 	}
 
-	async getRelevantContext(question: string): Promise<{role: 'system'; content: string}[]> {
+	async getRelevantContext(question: string, options: QAContextOptions = {}): Promise<{role: 'system'; content: string}[]> {
 		const wikiFiles = this.getWikiFiles();
+		options.onFileOperation?.({
+			action: 'scan',
+			path: this.settings.wikiFolder,
+			detail: t(this.settings.language, 'qaOperationScanWiki'),
+			timestamp: Date.now(),
+		});
 		if (wikiFiles.length === 0) {
 			return [];
 		}
@@ -33,6 +45,13 @@ export class QAEngine {
 		for (const file of topFiles) {
 			try {
 				const content = await this.app.vault.cachedRead(file);
+				options.onFileOperation?.({
+					action: 'read',
+					path: file.path,
+					detail: t(this.settings.language, 'qaOperationReadContext'),
+					preview: createPreview(content),
+					timestamp: Date.now(),
+				});
 				const truncated = content.substring(0, 2000);
 				contextParts.push(`## ${file.basename}\n\n${truncated}`);
 			} catch {
@@ -68,7 +87,7 @@ export class QAEngine {
 		}
 
 		return this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index');
+			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index' && f.basename !== 'log' && !f.path.includes('/.karmind/'));
 	}
 
 	private extractKeywords(question: string): string[] {
@@ -136,4 +155,9 @@ export class QAEngine {
 		scored.sort((a, b) => b.score - a.score);
 		return scored.map(s => s.file);
 	}
+}
+
+function createPreview(content: string): string {
+	const normalized = content.replace(/\s+/g, ' ').trim();
+	return normalized.length > 420 ? normalized.substring(0, 420) + '...' : normalized;
 }

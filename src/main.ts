@@ -1,4 +1,4 @@
-import {Notice, Plugin, TFile, WorkspaceLeaf} from 'obsidian';
+import {Notice, Plugin, WorkspaceLeaf} from 'obsidian';
 import {KarMindSettings, DEFAULT_SETTINGS, KarMindSettingTab} from './settings';
 import {VIEW_TYPE_KARMIND} from './constants';
 import {KarMindView} from './views/karmind-view';
@@ -11,11 +11,9 @@ import {Collector} from './core/collector';
 import {skillManager} from './skills/manager';
 import {summarizeSkill, listRawSkill, wikiStatsSkill, findOrphansSkill} from './skills/built-in';
 import {SessionStore} from './store/session-store';
+import {t} from './i18n';
 
 export default class KarMindPlugin extends Plugin {
-	private loadedAt = 0;
-	private autoCompilePaths = new Set<string>();
-
 	settings!: KarMindSettings;
 	llmClient!: LLMClient;
 	compiler!: Compiler;
@@ -26,7 +24,6 @@ export default class KarMindPlugin extends Plugin {
 	sessionStore!: SessionStore;
 
 	async onload(): Promise<void> {
-		this.loadedAt = Date.now();
 		await this.loadSettings();
 
 		this.llmClient = new LLMClient(this.settings);
@@ -46,40 +43,40 @@ export default class KarMindPlugin extends Plugin {
 
 		this.registerView(VIEW_TYPE_KARMIND, (leaf) => new KarMindView(leaf, this));
 
-		this.addRibbonIcon('brain', 'Open KarMind', () => {
+		this.addRibbonIcon('brain', t(this.settings.language, 'ribbonOpenKarMind'), () => {
 			void this.activateView();
 		});
 
 		this.addCommand({
 			id: 'open-panel',
-			name: 'Open panel',
+			name: t(this.settings.language, 'obsidianCommandOpenPanel'),
 			callback: () => { void this.activateView(); },
 		});
 
 		this.addCommand({
 			id: 'collect-current-note',
-			name: 'Collect: mark current note as raw material',
+			name: t(this.settings.language, 'obsidianCommandCollectCurrentNote'),
 			callback: () => { void this.collector.collectCurrentNote(); },
 		});
 
 		this.addCommand({
 			id: 'collect-clipboard',
-			name: 'Collect: save clipboard to raw folder',
+			name: t(this.settings.language, 'obsidianCommandCollectClipboard'),
 			callback: () => { void this.collector.collectFromClipboard(); },
 		});
 
 		this.addCommand({
 			id: 'compile-raw',
-			name: 'Compile: compile all raw notes',
+			name: t(this.settings.language, 'obsidianCommandCompileRaw'),
 			callback: () => {
 				void (async () => {
 					try {
-						new Notice('Compiling raw notes...');
+						new Notice(t(this.settings.language, 'noticeCompiling'));
 						await this.compiler.compileRaw();
-						new Notice('Compilation complete!');
+						new Notice(t(this.settings.language, 'noticeCompilationComplete'));
 						await this.activateView();
 					} catch (error) {
-						new Notice(`Compilation failed: ${error instanceof Error ? error.message : String(error)}`);
+						new Notice(t(this.settings.language, 'noticeCompilationFailed', {error: error instanceof Error ? error.message : String(error)}));
 					}
 				})();
 			},
@@ -87,16 +84,16 @@ export default class KarMindPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'health-check',
-			name: 'Health: run wiki health check',
+			name: t(this.settings.language, 'obsidianCommandHealthCheck'),
 			callback: () => {
 				void (async () => {
 					try {
-						new Notice('Running health check...');
+						new Notice(t(this.settings.language, 'noticeHealthRunning'));
 						const report = await this.healthChecker.check();
-						new Notice(`Health check complete: ${report.issues.length} issues found`);
+						new Notice(t(this.settings.language, 'noticeHealthComplete', {count: report.issues.length}));
 						await this.activateView();
 					} catch (error) {
-						new Notice(`Health check failed: ${error instanceof Error ? error.message : String(error)}`);
+						new Notice(t(this.settings.language, 'noticeHealthFailed', {error: error instanceof Error ? error.message : String(error)}));
 					}
 				})();
 			},
@@ -104,12 +101,12 @@ export default class KarMindPlugin extends Plugin {
 
 		this.addCommand({
 			id: 'test-llm-connection',
-			name: 'Test LLM connection',
+			name: t(this.settings.language, 'obsidianCommandTestLlm'),
 			callback: () => {
 				void (async () => {
-					new Notice('Testing LLM connection...');
+					new Notice(t(this.settings.language, 'noticeTestingLlm'));
 					const success = await this.llmClient.testConnection();
-					new Notice(success ? 'LLM connection successful!' : 'LLM connection failed. Check your settings.');
+					new Notice(success ? t(this.settings.language, 'noticeLlmSuccess') : t(this.settings.language, 'noticeLlmFailed'));
 				})();
 			},
 		});
@@ -118,70 +115,24 @@ export default class KarMindPlugin extends Plugin {
 
 		if (this.settings.autoCompile) {
 			this.registerEvent(this.app.vault.on('create', (file) => {
-				if (this.shouldAutoCompileCreatedFile(file)) {
-					void this.compileCreatedRawFile(file);
+				if (file.path.startsWith(this.settings.rawFolder + '/')) {
+					new Notice(t(this.settings.language, 'noticeAutoCompileEnabled'));
 				}
 			}));
-		}
-
-		if (this.settings.healthCheckInterval > 0) {
-			const intervalMs = this.settings.healthCheckInterval * 60 * 60 * 1000;
-			this.registerInterval(window.setInterval(() => {
-				void this.runScheduledHealthCheck();
-			}, intervalMs));
 		}
 	}
 
 	onunload(): void {
-		this.sessionStore?.flush();
 	}
 
 	async loadSettings(): Promise<void> {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<KarMindSettings> | null);
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<KarMindSettings>);
 	}
 
 	async saveSettings(): Promise<void> {
 		this.settings.disabledSkills = skillManager.getDisabledIds();
-		const data = (await this.loadData() as Record<string, unknown> | null) ?? {};
-		Object.assign(data, this.settings);
-		await this.saveData(data);
+		await this.saveData(this.settings);
 		this.updateEngines();
-	}
-
-	private shouldAutoCompileCreatedFile(file: unknown): file is TFile {
-		if (!(file instanceof TFile)) return false;
-		if (file.extension !== 'md') return false;
-		if (!file.path.startsWith(this.settings.rawFolder + '/')) return false;
-		if (!this.settings.apiKey) return false;
-
-		// Obsidian can emit create-like events while rebuilding the vault after reload.
-		// Existing raw files should not trigger auto compile just because the plugin loaded.
-		if (file.stat.ctime < this.loadedAt) return false;
-		if (this.autoCompilePaths.has(file.path)) return false;
-
-		return true;
-	}
-
-	private async compileCreatedRawFile(file: TFile): Promise<void> {
-		this.autoCompilePaths.add(file.path);
-		try {
-			new Notice('New raw file detected. Auto-compiling...');
-			await this.compiler.compileSingleFile(file);
-			new Notice(`Auto-compiled ${file.basename}.`);
-		} catch (error) {
-			new Notice(`Auto-compile failed: ${formatError(error)}`);
-		} finally {
-			this.autoCompilePaths.delete(file.path);
-		}
-	}
-
-	private async runScheduledHealthCheck(): Promise<void> {
-		try {
-			const report = await this.healthChecker.check();
-			new Notice(`KarMind health check complete: ${report.issues.length} issues found`);
-		} catch (error) {
-			new Notice(`KarMind health check failed: ${formatError(error)}`);
-		}
 	}
 
 	private updateEngines(): void {
@@ -225,8 +176,4 @@ export default class KarMindPlugin extends Plugin {
 			void workspace.revealLeaf(leaf);
 		}
 	}
-}
-
-function formatError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
 }

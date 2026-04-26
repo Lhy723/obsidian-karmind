@@ -1,17 +1,19 @@
-import {useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type UIEvent} from 'react';
+import {useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type UIEvent} from 'react';
 import {motion, useInView} from 'motion/react';
+
+const BOTTOM_FOLLOW_THRESHOLD = 56;
 
 interface AnimatedItemProps {
 	children: ReactNode;
 	delay?: number;
 	index: number;
-	onMouseEnter: () => void;
-	onClick: () => void;
+	onMouseEnter?: () => void;
+	onClick?: () => void;
 }
 
 function AnimatedItem({children, delay = 0, index, onMouseEnter, onClick}: AnimatedItemProps) {
 	const ref = useRef<HTMLDivElement>(null);
-	const inView = useInView(ref, {amount: 0.35, once: false});
+	const inView = useInView(ref, {amount: 'some', once: false});
 
 	return (
 		<motion.div
@@ -39,6 +41,8 @@ interface AnimatedListProps<T> {
 	className?: string;
 	displayScrollbar?: boolean;
 	initialSelectedIndex?: number;
+	autoScrollToBottom?: boolean;
+	scrollAnchorKey?: string | number;
 }
 
 export function AnimatedList<T>({
@@ -51,8 +55,11 @@ export function AnimatedList<T>({
 	className = '',
 	displayScrollbar = true,
 	initialSelectedIndex = -1,
+	autoScrollToBottom = false,
+	scrollAnchorKey,
 }: AnimatedListProps<T>) {
 	const listRef = useRef<HTMLDivElement>(null);
+	const shouldFollowBottomRef = useRef(true);
 	const [selectedIndex, setSelectedIndex] = useState(initialSelectedIndex);
 	const [keyboardNav, setKeyboardNav] = useState(false);
 	const [topGradientOpacity, setTopGradientOpacity] = useState(0);
@@ -72,6 +79,7 @@ export function AnimatedList<T>({
 		setTopGradientOpacity(Math.min(scrollTop / 40, 1));
 		const bottomDistance = scrollHeight - (scrollTop + clientHeight);
 		setBottomGradientOpacity(scrollHeight <= clientHeight ? 0 : Math.min(bottomDistance / 40, 1));
+		shouldFollowBottomRef.current = bottomDistance <= BOTTOM_FOLLOW_THRESHOLD;
 	}, []);
 
 	const handleKeyDown = useCallback((event: KeyboardEvent<HTMLDivElement>) => {
@@ -114,6 +122,13 @@ export function AnimatedList<T>({
 		setKeyboardNav(false);
 	}, [keyboardNav, selectedIndex]);
 
+	useLayoutEffect(() => {
+		if (!autoScrollToBottom || !shouldFollowBottomRef.current || !listRef.current) return;
+
+		const container = listRef.current;
+		container.scrollTop = container.scrollHeight;
+	}, [autoScrollToBottom, items.length, scrollAnchorKey]);
+
 	return (
 		<div className={`karmind-animated-list-container ${className}`}>
 			<div
@@ -128,8 +143,8 @@ export function AnimatedList<T>({
 						key={getItemKey?.(item, index) ?? String(index)}
 						delay={Math.min(index * 0.025, 0.12)}
 						index={index}
-						onMouseEnter={() => handleItemMouseEnter(index)}
-						onClick={() => handleItemClick(item, index)}
+						onMouseEnter={onItemSelect ? () => handleItemMouseEnter(index) : undefined}
+						onClick={onItemSelect ? () => handleItemClick(item, index) : undefined}
 					>
 						{renderItem(item, index, selectedIndex === index)}
 					</AnimatedItem>

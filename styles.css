@@ -1,5 +1,7 @@
 .karmind-container {
-	--karmind-radius: 14px;
+	--karmind-radius: 18px;
+	--karmind-message-radius: 20px;
+	--karmind-card-radius: 24px;
 	--karmind-gap: 12px;
 	display: flex;
 	flex-direction: column;
@@ -13,9 +15,6 @@
 }
 
 .karmind-header {
-	display: flex;
-	flex-direction: column;
-	gap: 12px;
 	padding: 14px;
 	border-bottom: 1px solid var(--background-modifier-border);
 	background: color-mix(in srgb, var(--background-primary) 86%, var(--background-secondary));
@@ -23,10 +22,14 @@
 }
 
 .karmind-title-row,
+.karmind-header-row,
 .karmind-toolbar,
 .karmind-brand,
 .karmind-header-actions,
 .karmind-input-buttons,
+.karmind-input-actions-row,
+.karmind-conversation-bar,
+.karmind-permission-row,
 .karmind-suggestion-actions {
 	display: flex;
 	align-items: center;
@@ -35,6 +38,11 @@
 .karmind-title-row {
 	justify-content: space-between;
 	gap: 10px;
+}
+
+.karmind-header-row {
+	gap: 8px;
+	min-width: 0;
 }
 
 .karmind-brand {
@@ -61,6 +69,7 @@
 	font-size: 16px;
 	line-height: 1.1;
 	color: var(--text-normal);
+	flex: 0 0 auto;
 }
 
 .karmind-subtitle {
@@ -102,6 +111,31 @@
 	flex-wrap: wrap;
 }
 
+.karmind-conversation-bar {
+	gap: 8px;
+	width: 100%;
+}
+
+.karmind-session-picker {
+	position: relative;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.karmind-session-picker::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	right: 6px;
+	width: 7px;
+	height: 7px;
+	border-right: 1.8px solid var(--text-muted);
+	border-bottom: 1.8px solid var(--text-muted);
+	transform: translateY(-68%) rotate(45deg);
+	pointer-events: none;
+	opacity: 0.78;
+}
+
 .karmind-field {
 	display: flex;
 	flex-direction: column;
@@ -135,6 +169,33 @@
 	padding: 0 8px;
 }
 
+.karmind-session-select {
+	appearance: none;
+	height: 32px;
+	border-color: transparent;
+	background: transparent;
+	padding: 0 22px 0 8px;
+	font-size: 13px;
+	font-weight: 720;
+	cursor: pointer;
+}
+
+.karmind-session-select:hover,
+.karmind-session-select:focus {
+	border-color: var(--background-modifier-border);
+	background: var(--background-secondary);
+	outline: none;
+}
+
+.karmind-conversation-bar .karmind-session-select {
+	flex: 1 1 auto;
+}
+
+.karmind-permission-row .karmind-permission-select {
+	width: auto;
+	min-width: 148px;
+}
+
 .karmind-header-actions {
 	gap: 6px;
 	align-self: flex-end;
@@ -151,6 +212,7 @@
 	cursor: pointer;
 	font-size: 12px;
 	font-weight: 650;
+	white-space: nowrap;
 }
 
 .karmind-session-btn:hover {
@@ -221,6 +283,7 @@
 .karmind-chat-list-container .karmind-animated-list-item-shell {
 	width: 100%;
 	display: flex;
+	border-radius: var(--karmind-card-radius);
 }
 
 .karmind-chat-list-container .karmind-message-user {
@@ -320,18 +383,22 @@
 
 .karmind-message {
 	padding: 10px 12px;
-	border-radius: 14px;
+	border-radius: var(--karmind-message-radius);
 	max-width: min(92%, 720px);
 	word-wrap: break-word;
 	overflow-wrap: break-word;
+	overflow: hidden;
+	background-clip: padding-box;
 	box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 .karmind-message-user {
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
 	align-self: flex-end;
-	border-bottom-right-radius: 4px;
+	border-radius: var(--karmind-message-radius);
 }
 
 .karmind-message-user .markdown-rendered,
@@ -344,14 +411,14 @@
 	color: var(--text-normal);
 	align-self: flex-start;
 	border: 1px solid var(--background-modifier-border);
-	border-bottom-left-radius: 4px;
+	border-radius: var(--karmind-message-radius);
 }
 
 .karmind-message-error {
 	background: rgba(232, 54, 74, 0.14);
 	color: var(--text-normal);
 	align-self: flex-start;
-	border-radius: 12px;
+	border-radius: var(--karmind-message-radius);
 	border: 1px solid rgba(232, 54, 74, 0.45);
 	min-width: 160px;
 }
@@ -381,8 +448,7 @@
 	color: var(--text-normal);
 	align-self: flex-start;
 	border: 1px solid rgba(var(--interactive-accent-rgb), 0.38);
-	border-radius: 16px;
-	border-bottom-left-radius: 5px;
+	border-radius: var(--karmind-card-radius);
 	padding: 12px;
 	min-width: min(340px, 92%);
 }
@@ -409,7 +475,7 @@
 	place-items: center;
 	width: 30px;
 	height: 30px;
-	border-radius: 10px;
+	border-radius: 14px;
 	background: var(--interactive-accent);
 	color: var(--text-on-accent);
 	font-weight: 800;
@@ -440,7 +506,7 @@
 	max-width: 100%;
 	margin-top: 10px;
 	padding: 5px 8px;
-	border-radius: 8px;
+	border-radius: 999px;
 	background: rgba(var(--interactive-accent-rgb), 0.1);
 	color: var(--interactive-accent);
 	font-size: 12px;
@@ -459,7 +525,7 @@
 
 .karmind-suggestion-btn {
 	border: 1px solid var(--background-modifier-border);
-	border-radius: 9px;
+	border-radius: 999px;
 	padding: 6px 11px;
 	background: var(--background-primary);
 	color: var(--text-normal);
@@ -474,8 +540,522 @@
 	border-color: var(--interactive-accent);
 }
 
+.karmind-message-task {
+	position: relative;
+	align-self: flex-start;
+	width: min(92%, 680px);
+	padding: 14px;
+	border: 1px solid rgba(var(--interactive-accent-rgb), 0.32);
+	border-radius: var(--karmind-card-radius);
+	background:
+		linear-gradient(140deg, rgba(var(--interactive-accent-rgb), 0.13), transparent 42%),
+		color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary));
+	box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.karmind-message-task::after {
+	content: "";
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+	border-radius: inherit;
+	background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.12) 42%, transparent 62%);
+	transform: translateX(-120%);
+	animation: karmind-task-sheen 2.8s ease-in-out infinite;
+}
+
+.karmind-task-success::after,
+.karmind-task-error::after,
+.karmind-task-stopped::after {
+	animation: none;
+	opacity: 0;
+}
+
+.karmind-task-error {
+	border-color: rgba(232, 54, 74, 0.45);
+	background:
+		linear-gradient(140deg, rgba(232, 54, 74, 0.14), transparent 48%),
+		color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary));
+}
+
+.karmind-task-card-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.karmind-task-orb {
+	width: 34px;
+	height: 34px;
+	border-radius: 14px;
+	background:
+		radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.75), transparent 24%),
+		var(--interactive-accent);
+	box-shadow: 0 0 0 0 rgba(var(--interactive-accent-rgb), 0.35);
+	animation: karmind-task-pulse 1.7s ease-out infinite;
+	flex: 0 0 auto;
+}
+
+.karmind-task-success .karmind-task-orb {
+	animation: none;
+	background: #2fb36d;
+}
+
+.karmind-task-error .karmind-task-orb {
+	animation: none;
+	background: #e8364a;
+}
+
+.karmind-task-stopped .karmind-task-orb {
+	animation: none;
+	background: var(--text-muted);
+}
+
+.karmind-task-title-group {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.karmind-task-kicker {
+	color: var(--text-faint);
+	font-size: 10px;
+	font-weight: 800;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+}
+
+.karmind-task-title {
+	margin-top: 2px;
+	font-size: 15px;
+	font-weight: 780;
+	color: var(--text-normal);
+}
+
+.karmind-task-percent {
+	padding: 5px 8px;
+	border-radius: 999px;
+	background: rgba(var(--interactive-accent-rgb), 0.12);
+	color: var(--interactive-accent);
+	font-size: 11px;
+	font-weight: 760;
+	white-space: nowrap;
+}
+
+.karmind-task-message {
+	margin-top: 12px;
+	color: var(--text-muted);
+	font-size: 13px;
+	line-height: 1.45;
+}
+
+.karmind-task-progress {
+	position: relative;
+	height: 8px;
+	margin-top: 12px;
+	overflow: hidden;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--background-modifier-border) 64%, transparent);
+}
+
+.karmind-task-progress-fill {
+	width: 0;
+	height: 100%;
+	border-radius: inherit;
+	background: linear-gradient(90deg, var(--interactive-accent), color-mix(in srgb, var(--interactive-accent) 45%, white));
+	transition: width 220ms ease;
+}
+
+.karmind-task-progress-indeterminate .karmind-task-progress-fill {
+	position: absolute;
+	width: 42%;
+	animation: karmind-task-indeterminate 1.2s ease-in-out infinite;
+}
+
+.karmind-task-steps {
+	margin-top: 7px;
+	color: var(--text-faint);
+	font-size: 11px;
+	font-weight: 650;
+}
+
+.karmind-task-details {
+	display: grid;
+	gap: 5px;
+	margin-top: 10px;
+	padding: 9px 10px;
+	border-radius: 14px;
+	background: rgba(0, 0, 0, 0.04);
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.35;
+}
+
+.karmind-task-detail {
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.karmind-task-result {
+	margin-top: 12px;
+	padding-top: 12px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.karmind-health-report {
+	margin-top: 12px;
+	padding-top: 12px;
+	border-top: 1px solid var(--background-modifier-border);
+}
+
+.karmind-health-metrics {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: 8px;
+}
+
+.karmind-health-metric {
+	padding: 10px;
+	border-radius: 14px;
+	background: var(--background-secondary);
+	border: 1px solid var(--background-modifier-border);
+}
+
+.karmind-health-metric-value {
+	font-size: 18px;
+	font-weight: 820;
+	line-height: 1;
+	color: var(--text-normal);
+}
+
+.karmind-health-metric-label {
+	margin-top: 5px;
+	color: var(--text-faint);
+	font-size: 10px;
+	font-weight: 750;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+}
+
+.karmind-health-metric-success {
+	border-color: rgba(47, 179, 109, 0.35);
+	background: rgba(47, 179, 109, 0.09);
+}
+
+.karmind-health-metric-warning {
+	border-color: rgba(225, 172, 55, 0.38);
+	background: rgba(225, 172, 55, 0.1);
+}
+
+.karmind-health-metric-danger {
+	border-color: rgba(232, 54, 74, 0.42);
+	background: rgba(232, 54, 74, 0.11);
+}
+
+.karmind-health-empty {
+	display: grid;
+	gap: 4px;
+	margin-top: 10px;
+	padding: 12px;
+	border-radius: 14px;
+	background: rgba(47, 179, 109, 0.09);
+	border: 1px solid rgba(47, 179, 109, 0.28);
+	color: var(--text-normal);
+}
+
+.karmind-health-empty span {
+	color: var(--text-muted);
+	font-size: 12px;
+}
+
+.karmind-health-issues {
+	display: grid;
+	gap: 8px;
+	margin-top: 12px;
+}
+
+.karmind-health-issues-title {
+	color: var(--text-muted);
+	font-size: 12px;
+	font-weight: 780;
+	letter-spacing: 0.04em;
+	text-transform: uppercase;
+}
+
+.karmind-health-issue {
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 14px;
+	background: var(--background-secondary);
+	overflow: hidden;
+}
+
+.karmind-health-issue > summary {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 10px;
+	cursor: pointer;
+	list-style: none;
+}
+
+.karmind-health-issue > summary::-webkit-details-marker {
+	display: none;
+}
+
+.karmind-health-issue-index {
+	display: grid;
+	place-items: center;
+	width: 24px;
+	height: 24px;
+	border-radius: 9px;
+	background: color-mix(in srgb, var(--background-modifier-border) 62%, transparent);
+	color: var(--text-muted);
+	font-size: 11px;
+	font-weight: 820;
+	flex: 0 0 auto;
+}
+
+.karmind-health-issue-main {
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.karmind-health-issue-title {
+	display: block;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-normal);
+	font-size: 13px;
+	font-weight: 720;
+}
+
+.karmind-health-issue-meta {
+	display: block;
+	margin-top: 2px;
+	color: var(--text-faint);
+	font-size: 11px;
+}
+
+.karmind-health-issue-severity {
+	flex: 0 0 auto;
+	padding: 3px 7px;
+	border-radius: 999px;
+	background: color-mix(in srgb, var(--background-modifier-border) 65%, transparent);
+	color: var(--text-muted);
+	font-size: 10px;
+	font-weight: 820;
+}
+
+.karmind-health-issue-high .karmind-health-issue-severity {
+	background: rgba(232, 54, 74, 0.14);
+	color: #e8364a;
+}
+
+.karmind-health-issue-medium .karmind-health-issue-severity {
+	background: rgba(225, 172, 55, 0.15);
+	color: #b9871f;
+}
+
+.karmind-health-issue-body {
+	display: grid;
+	gap: 8px;
+	padding: 0 10px 10px 44px;
+	color: var(--text-muted);
+	font-size: 12px;
+	line-height: 1.45;
+}
+
+.karmind-health-issue-body p {
+	margin: 3px 0 0;
+}
+
+.karmind-health-issue-body strong {
+	color: var(--text-normal);
+	font-weight: 720;
+}
+
+.karmind-health-issue-footnote {
+	color: var(--text-faint);
+	font-size: 11px;
+}
+
+.karmind-file-ops {
+	margin-top: 12px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 15px;
+	background: color-mix(in srgb, var(--background-primary) 68%, transparent);
+	overflow: hidden;
+}
+
+.karmind-file-ops > summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 10px;
+	padding: 9px 10px;
+	cursor: pointer;
+	color: var(--text-muted);
+	font-size: 12px;
+	font-weight: 760;
+	list-style: none;
+}
+
+.karmind-file-ops > summary::-webkit-details-marker,
+.karmind-file-op-preview > summary::-webkit-details-marker {
+	display: none;
+}
+
+.karmind-file-ops-count {
+	min-width: 22px;
+	padding: 2px 7px;
+	border-radius: 999px;
+	background: rgba(var(--interactive-accent-rgb), 0.12);
+	color: var(--interactive-accent);
+	text-align: center;
+	font-size: 11px;
+}
+
+.karmind-file-ops-list {
+	display: grid;
+	gap: 7px;
+	padding: 0 10px 10px;
+}
+
+.karmind-file-op {
+	padding: 8px;
+	border-radius: 12px;
+	background: var(--background-secondary);
+	border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+}
+
+.karmind-file-op-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+}
+
+.karmind-file-op-action {
+	flex: 0 0 auto;
+	padding: 2px 7px;
+	border-radius: 999px;
+	background: rgba(var(--interactive-accent-rgb), 0.11);
+	color: var(--interactive-accent);
+	font-size: 10px;
+	font-weight: 800;
+}
+
+.karmind-file-op-create .karmind-file-op-action {
+	background: rgba(47, 179, 109, 0.14);
+	color: #2fb36d;
+}
+
+.karmind-file-op-update .karmind-file-op-action {
+	background: rgba(var(--interactive-accent-rgb), 0.14);
+}
+
+.karmind-file-op-read .karmind-file-op-action,
+.karmind-file-op-scan .karmind-file-op-action {
+	background: color-mix(in srgb, var(--background-modifier-border) 65%, transparent);
+	color: var(--text-muted);
+}
+
+.karmind-file-op-path {
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--text-normal);
+	font-size: 11px;
+}
+
+.karmind-file-op-detail {
+	margin-top: 5px;
+	color: var(--text-faint);
+	font-size: 11px;
+	line-height: 1.35;
+}
+
+.karmind-file-op-preview {
+	margin-top: 7px;
+}
+
+.karmind-file-op-preview > summary {
+	width: fit-content;
+	cursor: pointer;
+	color: var(--interactive-accent);
+	font-size: 11px;
+	font-weight: 720;
+}
+
+.karmind-file-op-preview pre {
+	max-height: 150px;
+	margin: 7px 0 0;
+	padding: 8px;
+	overflow: auto;
+	border-radius: 10px;
+	background: var(--background-primary);
+	color: var(--text-muted);
+	font-size: 11px;
+	white-space: pre-wrap;
+}
+
+@media (max-width: 520px) {
+	.karmind-health-metrics {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.karmind-health-issue-body {
+		padding-left: 10px;
+	}
+}
+
+@keyframes karmind-task-pulse {
+	0% {
+		box-shadow: 0 0 0 0 rgba(var(--interactive-accent-rgb), 0.35);
+	}
+	70% {
+		box-shadow: 0 0 0 10px rgba(var(--interactive-accent-rgb), 0);
+	}
+	100% {
+		box-shadow: 0 0 0 0 rgba(var(--interactive-accent-rgb), 0);
+	}
+}
+
+@keyframes karmind-task-sheen {
+	0% {
+		transform: translateX(-120%);
+	}
+	48%,
+	100% {
+		transform: translateX(120%);
+	}
+}
+
+@keyframes karmind-task-indeterminate {
+	0% {
+		transform: translateX(-120%);
+	}
+	100% {
+		transform: translateX(260%);
+	}
+}
+
 .karmind-message-streaming {
 	opacity: 0.9;
+}
+
+.karmind-thinking-line {
+	display: flex;
+	align-items: center;
+	min-height: 20px;
+	font-weight: 650;
+	letter-spacing: 0.01em;
+}
+
+.karmind-shiny-text {
+	display: inline-block;
 }
 
 .karmind-stream-blur-text {
@@ -501,6 +1081,15 @@
 	font-size: 13px;
 	line-height: 1.52;
 	white-space: pre-wrap;
+	user-select: text;
+	-webkit-user-select: text;
+}
+
+.karmind-message-content *,
+.karmind-message-role,
+.karmind-message-time {
+	user-select: text;
+	-webkit-user-select: text;
 }
 
 .karmind-message-content.markdown-rendered {
@@ -522,15 +1111,32 @@
 	text-align: right;
 }
 
-.karmind-input-area {
-	display: grid;
-	grid-template-columns: 1fr auto;
-	gap: 10px;
-	align-items: end;
+.karmind-input-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
 	padding: 12px 14px 14px;
 	border-top: 1px solid var(--background-modifier-border);
 	background: color-mix(in srgb, var(--background-primary) 88%, var(--background-secondary));
 	flex-shrink: 0;
+}
+
+.karmind-permission-row {
+	gap: 8px;
+	min-width: 0;
+	flex: 1 1 auto;
+}
+
+.karmind-permission-row span {
+	color: var(--text-faint);
+	font-size: 10px;
+	font-weight: 750;
+	text-transform: uppercase;
+	letter-spacing: 0.06em;
+}
+
+.karmind-input-area {
+	min-width: 0;
 }
 
 .karmind-input-shell {
@@ -540,7 +1146,7 @@
 
 .karmind-input {
 	width: 100%;
-	padding: 11px 12px 25px;
+	padding: 11px 12px;
 	border: 1px solid var(--background-modifier-border);
 	border-radius: 13px;
 	background: var(--background-primary);
@@ -579,14 +1185,21 @@
 }
 
 .karmind-input-buttons {
-	flex-direction: column;
 	gap: 8px;
+	flex: 0 0 auto;
+	justify-content: flex-end;
+}
+
+.karmind-input-actions-row {
+	justify-content: space-between;
+	gap: 10px;
+	min-width: 0;
 }
 
 .karmind-send-btn,
 .karmind-stop-btn {
 	min-width: 82px;
-	height: 38px;
+	height: 34px;
 	padding: 0 14px;
 	border: none;
 	border-radius: 12px;
@@ -627,16 +1240,27 @@
 		padding: 12px;
 	}
 
-	.karmind-title-row,
-	.karmind-input-area {
-		grid-template-columns: 1fr;
+	.karmind-header-row {
+		flex-wrap: wrap;
 	}
 
-	.karmind-toolbar,
-	.karmind-input-area {
+	.karmind-session-picker {
+		order: 3;
+		flex-basis: 100%;
+	}
+
+	.karmind-toolbar {
 		display: flex;
 		flex-direction: column;
 		align-items: stretch;
+	}
+
+	.karmind-input-actions-row {
+		flex-wrap: wrap;
+	}
+
+	.karmind-permission-row {
+		flex: 1 1 100%;
 	}
 
 	.karmind-header-actions,

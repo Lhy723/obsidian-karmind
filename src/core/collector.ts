@@ -3,12 +3,6 @@ import {KarMindSettings} from '../settings';
 import {KARMIND_FRONTMATTER_KEY, KARMIND_RAW_TAG} from '../constants';
 import {ensureFolder} from '../utils/ensure-folder';
 
-type KarMindFrontmatter = {
-	type?: string;
-	compiled?: boolean;
-	[key: string]: unknown;
-};
-
 export class Collector {
 	private app: App;
 	private settings: KarMindSettings;
@@ -25,15 +19,29 @@ export class Collector {
 	async markAsRaw(file: TFile): Promise<void> {
 		await ensureFolder(this.app, this.settings.rawFolder);
 
-		await this.app.fileManager.processFrontMatter(file, (frontmatter: Record<string, unknown>) => {
-			const current = frontmatter[KARMIND_FRONTMATTER_KEY];
-			const karmind = isRecord(current) ? current as KarMindFrontmatter : {};
-			frontmatter[KARMIND_FRONTMATTER_KEY] = {
-				...karmind,
-				type: KARMIND_RAW_TAG,
-				compiled: false,
-			};
-		});
+		const content = await this.app.vault.read(file);
+
+		if (content.startsWith('---')) {
+			const endOfFrontmatter = content.indexOf('---', 3);
+			if (endOfFrontmatter !== -1) {
+				const frontmatter = content.substring(0, endOfFrontmatter + 3);
+				const body = content.substring(endOfFrontmatter + 3);
+
+				if (frontmatter.includes(`${KARMIND_FRONTMATTER_KEY}:`)) {
+					await this.app.vault.modify(file, frontmatter.replace(
+						`${KARMIND_FRONTMATTER_KEY}:`,
+						`${KARMIND_FRONTMATTER_KEY}:\n  type: ${KARMIND_RAW_TAG}\n  compiled: false`,
+					) + body);
+				} else {
+					await this.app.vault.modify(file, frontmatter + `\n${KARMIND_FRONTMATTER_KEY}:\n  type: ${KARMIND_RAW_TAG}\n  compiled: false` + body);
+				}
+				new Notice(`Marked "${file.basename}" as raw material.`);
+				return;
+			}
+		}
+
+		const newContent = `---\n${KARMIND_FRONTMATTER_KEY}:\n  type: ${KARMIND_RAW_TAG}\n  compiled: false\n---\n\n${content}`;
+		await this.app.vault.modify(file, newContent);
 		new Notice(`Marked "${file.basename}" as raw material.`);
 	}
 
@@ -49,11 +57,8 @@ export class Collector {
 		}
 
 		await this.app.vault.rename(file, targetPath);
-		const movedFile = this.app.vault.getAbstractFileByPath(targetPath);
-		if (movedFile instanceof TFile) {
-			await this.markAsRaw(movedFile);
-		}
-		new Notice(`Moved "${targetPath}" to raw folder.`);
+		await this.markAsRaw(file);
+		new Notice(`Moved "${file.basename}" to raw folder.`);
 	}
 
 	async collectFromClipboard(): Promise<void> {
@@ -84,8 +89,4 @@ export class Collector {
 
 		await this.markAsRaw(activeFile);
 	}
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

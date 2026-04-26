@@ -5,6 +5,7 @@ export interface ChatMessage {
 	content: string;
 	timestamp?: number;
 	suggestion?: WorkflowSuggestion;
+	taskProgress?: TaskProgress;
 }
 
 export interface WorkflowSuggestion {
@@ -12,6 +13,36 @@ export interface WorkflowSuggestion {
 	label: string;
 	description: string;
 	requiresConfirmation: boolean;
+}
+
+export interface TaskProgress {
+	kind: 'compile' | 'health' | 'backfill' | 'qa';
+	title: string;
+	status: 'running' | 'success' | 'error' | 'stopped';
+	message: string;
+	completed?: number;
+	total?: number;
+	currentPath?: string;
+	targetPath?: string;
+	error?: string;
+	startedAt?: number;
+	updatedAt?: number;
+	fileOperations?: FileOperationLog[];
+	healthReport?: TaskHealthReport;
+}
+
+export interface FileOperationLog {
+	action: 'scan' | 'read' | 'create' | 'update' | 'delete';
+	path: string;
+	detail?: string;
+	preview?: string;
+	timestamp: number;
+}
+
+export interface TaskHealthReport {
+	timestamp: number;
+	totalPages: number;
+	issues: HealthCheckIssue[];
 }
 
 export interface ChatSession {

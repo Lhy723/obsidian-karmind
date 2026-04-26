@@ -2,8 +2,10 @@ import {App, PluginSettingTab, Setting} from "obsidian";
 import KarMindPlugin from "./main";
 import {skillManager} from "./skills/manager";
 import {PermissionLevel} from "./types";
+import {type KarMindLanguage, t} from "./i18n";
 
 export interface KarMindSettings {
+	language: KarMindLanguage;
 	apiBaseUrl: string;
 	apiKey: string;
 	model: string;
@@ -19,6 +21,7 @@ export interface KarMindSettings {
 }
 
 export const DEFAULT_SETTINGS: KarMindSettings = {
+	language: 'zh',
 	apiBaseUrl: 'https://api.openai.com/v1',
 	apiKey: '',
 	model: 'gpt-4o-mini',
@@ -45,12 +48,26 @@ export class KarMindSettingTab extends PluginSettingTab {
 		const {containerEl} = this;
 
 		containerEl.empty();
+		const language = this.plugin.settings.language;
 
 		new Setting(containerEl).setName('KarMind').setHeading();
 
 		new Setting(containerEl)
-			.setName('LLM API base URL')
-			.setDesc('OpenAI-compatible API endpoint (e.g. https://api.openai.com/v1)')
+			.setName(t(language, 'settingsLanguageName'))
+			.setDesc(t(language, 'settingsLanguageDesc'))
+			.addDropdown(dropdown => dropdown
+				.addOption('zh', t(language, 'languageChinese'))
+				.addOption('en', t(language, 'languageEnglish'))
+				.setValue(this.plugin.settings.language)
+				.onChange(async (value) => {
+					this.plugin.settings.language = value as KarMindLanguage;
+					await this.plugin.saveSettings();
+					this.display();
+				}));
+
+		new Setting(containerEl)
+			.setName(t(language, 'settingsApiBaseName'))
+			.setDesc(t(language, 'settingsApiBaseDesc'))
 			.addText(text => text
 				.setPlaceholder('https://api.openai.com/v1')
 				.setValue(this.plugin.settings.apiBaseUrl)
@@ -60,8 +77,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('API key')
-			.setDesc('Your LLM API key. Stored locally in your vault.')
+			.setName(t(language, 'settingsApiKeyName'))
+			.setDesc(t(language, 'settingsApiKeyDesc'))
 			.addText(text => {
 				text.inputEl.type = 'password';
 				text.setPlaceholder('sk-...')
@@ -73,8 +90,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Model')
-			.setDesc('Model name (e.g. gpt-4o-mini, gpt-4o, deepseek-chat, llama3)')
+			.setName(t(language, 'settingsModelName'))
+			.setDesc(t(language, 'settingsModelDesc'))
 			.addText(text => text
 				.setPlaceholder('gpt-4o-mini')
 				.setValue(this.plugin.settings.model)
@@ -84,8 +101,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Raw folder')
-			.setDesc('Folder path for collecting raw materials')
+			.setName(t(language, 'settingsRawFolderName'))
+			.setDesc(t(language, 'settingsRawFolderDesc'))
 			.addText(text => text
 				.setPlaceholder('raw')
 				.setValue(this.plugin.settings.rawFolder)
@@ -95,8 +112,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Wiki folder')
-			.setDesc('Folder path for compiled wiki pages')
+			.setName(t(language, 'settingsWikiFolderName'))
+			.setDesc(t(language, 'settingsWikiFolderDesc'))
 			.addText(text => text
 				.setPlaceholder('wiki')
 				.setValue(this.plugin.settings.wikiFolder)
@@ -106,8 +123,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Max tokens')
-			.setDesc('Maximum tokens for LLM responses (256–16384)')
+			.setName(t(language, 'settingsMaxTokensName'))
+			.setDesc(t(language, 'settingsMaxTokensDesc'))
 			.addText(text => {
 				text.inputEl.type = 'number';
 				text.inputEl.min = '256';
@@ -125,8 +142,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Temperature')
-			.setDesc('LLM sampling temperature, 0–2 (lower = more deterministic)')
+			.setName(t(language, 'settingsTemperatureName'))
+			.setDesc(t(language, 'settingsTemperatureDesc'))
 			.addText(text => {
 				text.inputEl.type = 'number';
 				text.inputEl.min = '0';
@@ -144,8 +161,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Enable streaming responses')
-			.setDesc('Use browser fetch with SSE. Disable this if your API blocks app://obsidian.md by CORS.')
+			.setName(t(language, 'settingsStreamingName'))
+			.setDesc(t(language, 'settingsStreamingDesc'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.enableStreaming)
 				.onChange(async (value) => {
@@ -154,8 +171,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Auto compile')
-			.setDesc('Automatically compile raw notes when they are added')
+			.setName(t(language, 'settingsAutoCompileName'))
+			.setDesc(t(language, 'settingsAutoCompileDesc'))
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.autoCompile)
 				.onChange(async (value) => {
@@ -164,8 +181,8 @@ export class KarMindSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('Health check interval')
-			.setDesc('Automatic health check interval in hours (0 = disabled, max 168)')
+			.setName(t(language, 'settingsHealthIntervalName'))
+			.setDesc(t(language, 'settingsHealthIntervalDesc'))
 			.addText(text => {
 				text.inputEl.type = 'number';
 				text.inputEl.min = '0';
@@ -183,22 +200,22 @@ export class KarMindSettingTab extends PluginSettingTab {
 			});
 
 		new Setting(containerEl)
-			.setName('Default permission')
-			.setDesc('Default permission level for new conversations. Basic: Q&A only. Enhanced: Q&A + file operations.')
+			.setName(t(language, 'settingsDefaultPermissionName'))
+			.setDesc(t(language, 'settingsDefaultPermissionDesc'))
 			.addDropdown(dropdown => dropdown
-				.addOption('basic', 'Basic Q&A')
-				.addOption('enhanced', 'Enhanced Notes')
+				.addOption('basic', t(language, 'permissionBasic'))
+				.addOption('enhanced', t(language, 'permissionEnhanced'))
 				.setValue(this.plugin.settings.defaultPermission)
 				.onChange(async (value) => {
 					this.plugin.settings.defaultPermission = value as PermissionLevel;
 					await this.plugin.saveSettings();
 				}));
 
-		new Setting(containerEl).setName('Skills').setHeading();
+		new Setting(containerEl).setName(t(language, 'settingsSkillsName')).setHeading();
 
 		const skills = skillManager.getAllSkills();
 		if (skills.length === 0) {
-			containerEl.createEl('p', {text: 'No skills registered.', cls: 'karmind-settings-empty'});
+			containerEl.createEl('p', {text: t(language, 'settingsNoSkills'), cls: 'karmind-settings-empty'});
 		} else {
 			for (const skill of skills) {
 				new Setting(containerEl)
