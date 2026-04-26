@@ -1,0 +1,62 @@
+name: Release
+
+on:
+    push:
+        tags:
+            - "*.*.*"
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: "Release tag, for example 0.1.0"
+                required: true
+                default: "0.1.0"
+
+permissions:
+    contents: write
+
+jobs:
+    release:
+        runs-on: ubuntu-latest
+        env:
+            RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+        steps:
+            - name: Checkout release tag
+              uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+
+            - name: Use Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 22.x
+                  cache: "npm"
+
+            - name: Install dependencies
+              run: npm ci
+
+            - name: Build plugin
+              run: npm run build
+
+            - name: Validate release metadata
+              run: |
+                  if [[ ! "$RELEASE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                    echo "Release tag must be SemVer without a leading v: $RELEASE_TAG"
+                    exit 1
+                  fi
+
+                  node -e "const manifest = require('./manifest.json'); const tag = process.env.RELEASE_TAG; if (manifest.version !== tag) { throw new Error('manifest.json version ' + manifest.version + ' does not match tag ' + tag); }"
+
+                  test -f main.js
+                  test -f manifest.json
+                  test -f styles.css
+
+            - name: Create or update GitHub release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+                    gh release upload "$RELEASE_TAG" main.js manifest.json styles.css --clobber
+                  else
+                    gh release create "$RELEASE_TAG" main.js manifest.json styles.css --title "$RELEASE_TAG" --notes "KarMind $RELEASE_TAG"
+                  fi
