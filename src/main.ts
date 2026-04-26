@@ -26,6 +26,8 @@ export default class KarMindPlugin extends Plugin {
 	sessionStore!: SessionStore;
 	private autoCompileRunning = false;
 	private autoCompilePending = false;
+	private healthCheckIntervalId: number | null = null;
+	private healthCheckRunning = false;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -107,16 +109,7 @@ export default class KarMindPlugin extends Plugin {
 			id: 'health-check',
 			name: t(this.settings.language, 'obsidianCommandHealthCheck'),
 			callback: () => {
-				void (async () => {
-					try {
-						new Notice(t(this.settings.language, 'noticeHealthRunning'));
-						const report = await this.healthChecker.check();
-						new Notice(t(this.settings.language, 'noticeHealthComplete', {count: report.issues.length}));
-						await this.activateView();
-					} catch (error) {
-						new Notice(t(this.settings.language, 'noticeHealthFailed', {error: error instanceof Error ? error.message : String(error)}));
-					}
-				})();
+				void this.runHealthCheck();
 			},
 		});
 
@@ -133,6 +126,7 @@ export default class KarMindPlugin extends Plugin {
 		});
 
 		this.addSettingTab(new KarMindSettingTab(this.app, this));
+		this.scheduleHealthChecks();
 
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(this.app.vault.on('create', (file) => {
@@ -178,6 +172,7 @@ export default class KarMindPlugin extends Plugin {
 		this.backfillEngine.updateSettings(this.settings);
 		this.healthChecker.updateSettings(this.settings);
 		this.collector.updateSettings(this.settings);
+		this.scheduleHealthChecks();
 
 		this.app.workspace.getLeavesOfType(VIEW_TYPE_KARMIND).forEach((leaf) => {
 			if (leaf.view instanceof KarMindView) {
@@ -231,6 +226,46 @@ export default class KarMindPlugin extends Plugin {
 		} finally {
 			this.autoCompileRunning = false;
 			this.autoCompilePending = false;
+		}
+	}
+
+	private scheduleHealthChecks(): void {
+		if (this.healthCheckIntervalId !== null) {
+			window.clearInterval(this.healthCheckIntervalId);
+			this.healthCheckIntervalId = null;
+		}
+
+		const intervalHours = this.settings.healthCheckInterval;
+		if (intervalHours <= 0) return;
+
+		this.healthCheckIntervalId = window.setInterval(() => {
+			void this.runHealthCheck(true);
+		}, intervalHours * 60 * 60 * 1000);
+		this.registerInterval(this.healthCheckIntervalId);
+	}
+
+	private async runHealthCheck(scheduled = false): Promise<void> {
+		if (this.healthCheckRunning) {
+			new Notice(t(this.settings.language, 'noticeHealthAlreadyRunning'));
+			return;
+		}
+
+		if (scheduled && !this.hasApiKey()) {
+			new Notice(t(this.settings.language, 'scheduledHealthSkippedNoApiKey'));
+			return;
+		}
+
+		this.healthCheckRunning = true;
+
+		try {
+			new Notice(t(this.settings.language, scheduled ? 'scheduledHealthRunning' : 'noticeHealthRunning'));
+			const report = await this.healthChecker.check();
+			new Notice(t(this.settings.language, scheduled ? 'scheduledHealthComplete' : 'noticeHealthComplete', {count: report.issues.length}));
+			await this.activateView();
+		} catch (error) {
+			new Notice(t(this.settings.language, scheduled ? 'scheduledHealthFailed' : 'noticeHealthFailed', {error: error instanceof Error ? error.message : String(error)}));
+		} finally {
+			this.healthCheckRunning = false;
 		}
 	}
 
