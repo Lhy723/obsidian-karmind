@@ -3,10 +3,6 @@ export const VIEW_TYPE_KARMIND = 'karmind-chat-view';
 export const DEFAULT_RAW_FOLDER = 'raw';
 export const DEFAULT_WIKI_FOLDER = 'wiki';
 
-export const KARMIND_FRONTMATTER_KEY = 'karmind';
-export const KARMIND_RAW_TAG = 'raw';
-export const KARMIND_WIKI_TAG = 'wiki';
-export const KARMIND_COMPILED_KEY = 'compiled';
 export const SYSTEM_PROMPT_COMPILE_VERSION = 'compile-actions-v1';
 
 export const SYSTEM_PROMPT_COMPILE = `You are a knowledge compilation engine. Your task is to read raw notes and compile them into a structured wiki.

@@ -10,6 +10,7 @@ import {HealthChecker} from './core/health-checker';
 import {Collector} from './core/collector';
 import {skillManager} from './skills/manager';
 import {summarizeSkill, listRawSkill, wikiStatsSkill, findOrphansSkill} from './skills/built-in';
+import {VaultSkillLoader} from './skills/vault-loader';
 import {SessionStore} from './store/session-store';
 import {t} from './i18n';
 import {getSecretValue, setSecretValue} from './utils/secrets';
@@ -23,11 +24,13 @@ export default class KarMindPlugin extends Plugin {
 	backfillEngine!: BackfillEngine;
 	healthChecker!: HealthChecker;
 	collector!: Collector;
+	vaultSkillLoader!: VaultSkillLoader;
 	sessionStore!: SessionStore;
 	private autoCompileRunning = false;
 	private autoCompilePending = false;
 	private healthCheckIntervalId: number | null = null;
 	private healthCheckRunning = false;
+	private skillReloadTimer: number | null = null;
 
 	async onload(): Promise<void> {
 		await this.loadSettings();
@@ -38,11 +41,13 @@ export default class KarMindPlugin extends Plugin {
 		this.backfillEngine = new BackfillEngine(this.app, this.llmClient, this.settings);
 		this.healthChecker = new HealthChecker(this.app, this.llmClient, this.settings);
 		this.collector = new Collector(this.app, this.settings);
+		this.vaultSkillLoader = new VaultSkillLoader(this.app, this.llmClient, this.settings);
 
 		this.sessionStore = new SessionStore(this);
 		await this.sessionStore.load();
 
 		this.registerBuiltInSkills();
+		await this.vaultSkillLoader.reload();
 
 		const savedDisabled = this.settings.disabledSkills ?? [];
 		skillManager.setDisabledIds(savedDisabled);
@@ -130,7 +135,14 @@ export default class KarMindPlugin extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 			this.registerEvent(this.app.vault.on('create', (file) => {
+				this.scheduleSkillReload(file.path);
 				void this.handleAutoCompile(file);
+			}));
+			this.registerEvent(this.app.vault.on('modify', (file) => {
+				this.scheduleSkillReload(file.path);
+			}));
+			this.registerEvent(this.app.vault.on('delete', (file) => {
+				this.scheduleSkillReload(file.path);
 			}));
 		});
 	}
@@ -139,14 +151,19 @@ export default class KarMindPlugin extends Plugin {
 	}
 
 	async loadSettings(): Promise<void> {
-		const data = await this.loadData() as (Partial<KarMindSettings> & {apiKey?: string}) | null;
+		const data = await this.loadData() as (Partial<KarMindSettings> & {apiKey?: string; enableStreaming?: boolean}) | null;
 		const saved = data ?? {};
 		const legacyApiKey = typeof saved.apiKey === 'string' ? saved.apiKey.trim() : '';
 		delete saved.apiKey;
+		delete saved.enableStreaming;
 
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, saved);
+		if (!isKarMindLanguage(this.settings.language)) {
+			this.settings.language = DEFAULT_SETTINGS.language;
+		}
 		this.settings.rawFolder = normalizePath(this.settings.rawFolder || DEFAULT_SETTINGS.rawFolder);
 		this.settings.wikiFolder = normalizePath(this.settings.wikiFolder || DEFAULT_SETTINGS.wikiFolder);
+		this.settings.skillsFolder = normalizePath(this.settings.skillsFolder || DEFAULT_SETTINGS.skillsFolder);
 
 		if (legacyApiKey) {
 			const migrated = setSecretValue(this.app, this.settings.apiKeySecretId, legacyApiKey);
@@ -161,6 +178,7 @@ export default class KarMindPlugin extends Plugin {
 		const existing = await this.loadData() as Record<string, unknown> | null;
 		const next = {...(existing ?? {}), ...this.settings};
 		delete (next as {apiKey?: unknown}).apiKey;
+		delete (next as {enableStreaming?: unknown}).enableStreaming;
 		await this.saveData(next);
 		this.updateEngines();
 	}
@@ -172,7 +190,9 @@ export default class KarMindPlugin extends Plugin {
 		this.backfillEngine.updateSettings(this.settings);
 		this.healthChecker.updateSettings(this.settings);
 		this.collector.updateSettings(this.settings);
+		this.vaultSkillLoader.updateSettings(this.settings);
 		this.scheduleHealthChecks();
+		void this.vaultSkillLoader.reload();
 
 		this.app.workspace.getLeavesOfType(VIEW_TYPE_KARMIND).forEach((leaf) => {
 			if (leaf.view instanceof KarMindView) {
@@ -190,6 +210,18 @@ export default class KarMindPlugin extends Plugin {
 		skillManager.registerSkill(listRawSkill);
 		skillManager.registerSkill(wikiStatsSkill);
 		skillManager.registerSkill(findOrphansSkill);
+	}
+
+	private scheduleSkillReload(path: string): void {
+		if (!this.vaultSkillLoader.isSkillPath(path)) return;
+		if (this.skillReloadTimer !== null) {
+			window.clearTimeout(this.skillReloadTimer);
+		}
+
+		this.skillReloadTimer = window.setTimeout(() => {
+			this.skillReloadTimer = null;
+			void this.vaultSkillLoader.reload();
+		}, 400);
 	}
 
 	private async handleAutoCompile(file: unknown): Promise<void> {
@@ -288,4 +320,8 @@ export default class KarMindPlugin extends Plugin {
 			void workspace.revealLeaf(leaf);
 		}
 	}
+}
+
+function isKarMindLanguage(value: unknown): value is KarMindSettings['language'] {
+	return value === 'system' || value === 'zh' || value === 'en';
 }

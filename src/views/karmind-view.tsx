@@ -25,6 +25,7 @@ export class KarMindView extends ItemView {
 
 	async onOpen(): Promise<void> {
 		const container = this.containerEl.children[1] as HTMLElement;
+		container.addClass('karmind-view-content');
 		container.empty();
 
 		this.root = createRoot(container);
@@ -44,5 +45,6 @@ export class KarMindView extends ItemView {
 	async onClose(): Promise<void> {
 		this.root?.unmount();
 		this.root = null;
+		(this.containerEl.children[1] as HTMLElement | undefined)?.removeClass('karmind-view-content');
 	}
 }

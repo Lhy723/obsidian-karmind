@@ -13,7 +13,7 @@ import {type KarMindLanguage, t} from '../i18n';
 import {usePlugin} from './hooks';
 import {ChatArea} from './ChatArea';
 import {Header} from './Header';
-import {InputArea} from './InputArea';
+import {InputArea, type CommandSuggestionItem} from './InputArea';
 import {confirmAction} from './confirm';
 
 const LOG_PREFIX = '[KarMind View]';
@@ -67,6 +67,17 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 	const activeSession = sessions.find(s => s.id === activeSessionId);
 	const chatMessages = activeSession?.messages ?? [];
 	const apiKeyConfigured = plugin.hasApiKey();
+	const commandSuggestions: CommandSuggestionItem[] = [
+		{name: '/compile', description: t(language, 'commandDescCompile'), insertText: '/compile'},
+		{name: '/qa', description: t(language, 'commandDescQa'), insertText: '/qa '},
+		{name: '/backfill', description: t(language, 'commandDescBackfill'), insertText: '/backfill '},
+		{name: '/health', description: t(language, 'commandDescHealth'), insertText: '/health'},
+		{name: '/skills', description: t(language, 'commandDescSkills'), insertText: '/skills'},
+		{name: '/skill', description: t(language, 'commandDescSkill'), insertText: '/skill '},
+		{name: '/new', description: t(language, 'commandDescNew'), insertText: '/new'},
+		{name: '/clear', description: t(language, 'commandDescClear'), insertText: '/clear'},
+		{name: '/help', description: t(language, 'commandDescHelp'), insertText: '/help'},
+	];
 
 	const pushMessage = useCallback((sessionId: string, msg: ChatMessage): number | null => {
 		const index = sessionStore.pushMessage(sessionId, msg);
@@ -312,6 +323,11 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			name: '/qa',
 			description: t(language, 'commandDescQa'),
 			execute: async (args, session) => {
+				if (!args.trim()) {
+					pushMessage(session.id, {role: 'error', content: t(language, 'usageQa'), timestamp: Date.now()});
+					return;
+				}
+
 				const fileOperations: FileOperationLog[] = [];
 				let currentTaskProgress: TaskProgress = {
 					kind: 'qa',
@@ -385,6 +401,11 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			name: '/backfill',
 			description: t(language, 'commandDescBackfill'),
 			execute: async (args, session) => {
+				if (!args.trim()) {
+					pushMessage(session.id, {role: 'error', content: t(language, 'usageBackfill'), timestamp: Date.now()});
+					return;
+				}
+
 				const fileOperations: FileOperationLog[] = [];
 				let currentTaskProgress: TaskProgress = {
 					kind: 'backfill',
@@ -560,7 +581,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			name: '/skill',
 			description: t(language, 'commandDescSkill'),
 			execute: async (args, session) => {
-				const parts = args.split(/\s+/);
+				const parts = args.trim().split(/\s+/);
 				const skillId = parts[0];
 				const skillArgs = parts.slice(1);
 				if (!skillId) {
@@ -624,7 +645,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 			.map(m => ({role: m.role as 'user' | 'assistant', content: m.content}));
 
 		const messages = [
-			{role: 'system' as const, content: `${SYSTEM_PROMPT_WORKFLOW_GUIDE}\n\n${t(language, 'workflowLanguageInstruction')}`},
+			{role: 'system' as const, content: `${SYSTEM_PROMPT_WORKFLOW_GUIDE}\n\n${formatSkillGuide()}\n\n${t(language, 'workflowLanguageInstruction')}`},
 			...contextMessages,
 			...systemMessages,
 			...conversationMessages,
@@ -670,7 +691,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 	}, [language, llmClient, pushMessage, flushStreamBuffer]);
 
 	const suggestNextWorkflowStep = useCallback((sessionId: string, input: string) => {
-		const suggestion = inferWorkflowSuggestion(input, sessionStore.get(sessionId), language);
+		const suggestion = inferWorkflowSuggestion(input, sessionStore.get(sessionId), language, getSkillSuggestions(input));
 		if (!suggestion) return;
 
 		pushMessage(sessionId, {
@@ -784,6 +805,7 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 				onChangePermission={(p) => {
 					if (activeSession) void changePermission(activeSession.id, p);
 				}}
+				commandSuggestions={commandSuggestions}
 				language={language}
 			/>
 		</div>
@@ -878,11 +900,20 @@ function parseCompileArgs(args: string): {force: boolean; instruction?: string} 
 	return {force, instruction: instruction || undefined};
 }
 
-function inferWorkflowSuggestion(input: string, session: ChatSession | undefined, language: KarMindLanguage) {
+function inferWorkflowSuggestion(input: string, session: ChatSession | undefined, language: KarMindLanguage, skillSuggestion?: {id: string; name: string}) {
 	const normalized = input.toLowerCase();
 	if (!session) return null;
 	const hasSuggestion = session.messages.some(message => message.role === 'suggestion' && message.suggestion);
 	if (hasSuggestion) return null;
+
+	if (skillSuggestion) {
+		return {
+			command: `/skill ${skillSuggestion.id} ${input}`,
+			label: t(language, 'suggestSkillLabel', {name: skillSuggestion.name}),
+			description: t(language, 'suggestSkillDesc', {name: skillSuggestion.name}),
+			requiresConfirmation: true,
+		};
+	}
 
 	if (/(刚|新|加入|收集|导入|clip|raw|素材|网页|文章|论文|资料)/i.test(input)) {
 		return {
@@ -921,6 +952,44 @@ function inferWorkflowSuggestion(input: string, session: ChatSession | undefined
 	}
 
 	return null;
+}
+
+function formatSkillGuide(): string {
+	const skills = skillManager.getAllSkills().filter(skill => skillManager.isEnabled(skill.id));
+	if (skills.length === 0) {
+		return 'Available skills: none.';
+	}
+
+	return [
+		'Available skills:',
+		...skills.map(skill => `- ${skill.id} (${skill.name}): ${skill.description}`),
+		'When a user request clearly matches a skill, mention the matching skill and suggest `/skill <id> <args>` for user approval instead of assuming the user knows the command.',
+	].join('\n');
+}
+
+function getSkillSuggestions(input: string): {id: string; name: string} | undefined {
+	const normalizedInput = normalizeSuggestionText(input);
+	if (!normalizedInput) return undefined;
+
+	let best: {id: string; name: string; score: number} | undefined;
+	for (const skill of skillManager.getAllSkills()) {
+		if (!skillManager.isEnabled(skill.id)) continue;
+		const haystack = normalizeSuggestionText(`${skill.id} ${skill.name} ${skill.description}`);
+		const tokens = haystack.split(/\s+/).filter(token => token.length >= 3);
+		let score = 0;
+		for (const token of tokens) {
+			if (normalizedInput.includes(token)) score++;
+		}
+		if (score > 0 && (!best || score > best.score)) {
+			best = {id: skill.id, name: skill.name, score};
+		}
+	}
+
+	return best ? {id: best.id, name: best.name} : undefined;
+}
+
+function normalizeSuggestionText(text: string): string {
+	return text.toLowerCase().replace(/[^\p{L}\p{N}_-]+/gu, ' ').trim();
 }
 
 function normalizeAssistantWorkflowCommands(content: string, language: KarMindLanguage): string {

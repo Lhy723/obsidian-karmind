@@ -6,6 +6,8 @@ import {ensureFolder} from '../utils/ensure-folder';
 import {t} from '../i18n';
 import {type FileOperationLog} from '../types';
 import {WikiStateStore} from './wiki-state';
+import {isSpecialWikiFile} from './wiki-paths';
+import {writeKarMindDocument} from './frontmatter';
 
 interface BackfillAction {
 	action: 'update' | 'create';
@@ -133,7 +135,7 @@ export class BackfillEngine {
 						if (action.append) {
 							await this.app.vault.process(existing, (data) => data + '\n\n' + action.content);
 						} else {
-							await this.app.vault.modify(existing, action.content);
+							await this.app.vault.process(existing, () => action.content);
 						}
 						onFileOperation?.({
 							action: 'update',
@@ -160,7 +162,7 @@ export class BackfillEngine {
 						if (action.append) {
 							await this.app.vault.process(existing, (data) => data + '\n\n' + action.content);
 						} else {
-							await this.app.vault.modify(existing, action.content);
+							await this.app.vault.process(existing, () => action.content);
 						}
 						onFileOperation?.({
 							action: 'update',
@@ -182,7 +184,7 @@ export class BackfillEngine {
 
 	private async getWikiContext(onFileOperation?: (operation: FileOperationLog) => void): Promise<string> {
 		const wikiFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index' && f.basename !== 'log' && !f.path.includes('/.karmind/'));
+			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && !isSpecialWikiFile(f));
 		onFileOperation?.({
 			action: 'scan',
 			path: this.settings.wikiFolder,
@@ -206,15 +208,16 @@ export class BackfillEngine {
 		const fileName = `backfill-${timestamp}.md`;
 		const filePath = `${this.settings.wikiFolder}/${fileName}`;
 
-		const frontmatter = `---\nkarmind:\n  type: backfill\n  createdAt: ${Date.now()}\n---\n\n`;
-
-		await this.app.vault.create(filePath, frontmatter + result);
+		await writeKarMindDocument(this.app, filePath, result, {
+			type: 'backfill',
+			createdAt: new Date().toISOString(),
+		});
 		return filePath;
 	}
 
 	private async updateWikiIndex(): Promise<'create' | 'update'> {
 		const wikiFiles = this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index' && f.basename !== 'log' && !f.path.includes('/.karmind/'));
+			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && !isSpecialWikiFile(f));
 
 		const indexPath = `${this.settings.wikiFolder}/_index.md`;
 		const concepts: Record<string, string[]> = {};
@@ -229,7 +232,7 @@ export class BackfillEngine {
 			}
 		}
 
-		let indexContent = `---\nkarmind:\n  type: index\n  updatedAt: ${Date.now()}\n---\n\n# Wiki Index\n\n`;
+		let indexContent = '# Wiki Index\n\n';
 
 		indexContent += `## All Pages\n\n`;
 		for (const file of wikiFiles) {
@@ -248,10 +251,16 @@ export class BackfillEngine {
 
 		const existingIndex = this.app.vault.getAbstractFileByPath(indexPath);
 		if (existingIndex instanceof TFile) {
-			await this.app.vault.modify(existingIndex, indexContent);
+			await writeKarMindDocument(this.app, indexPath, indexContent, {
+				type: 'index',
+				updatedAt: new Date().toISOString(),
+			});
 			return 'update';
 		} else {
-			await this.app.vault.create(indexPath, indexContent);
+			await writeKarMindDocument(this.app, indexPath, indexContent, {
+				type: 'index',
+				updatedAt: new Date().toISOString(),
+			});
 			return 'create';
 		}
 	}

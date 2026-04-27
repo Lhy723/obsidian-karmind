@@ -1,5 +1,7 @@
 import {KarMindSkill, SkillContext, SkillResult} from '../types';
 import {TFile, TFolder} from 'obsidian';
+import {isSpecialWikiFile} from '../../core/wiki-paths';
+import {getKarMindValue} from '../../core/frontmatter';
 
 function hasIncomingLinks(context: SkillContext, file: TFile): boolean {
 	const resolvedLinks = context.app.metadataCache.resolvedLinks;
@@ -60,8 +62,7 @@ export const listRawSkill: KarMindSkill = {
 
 		const uncompiled = rawFiles.filter(f => {
 			const cache = context.app.metadataCache.getFileCache(f);
-			const karmindMeta = cache?.frontmatter?.karmind as Record<string, unknown> | undefined;
-			return !(karmindMeta?.compiled as boolean | undefined);
+			return getKarMindValue(cache?.frontmatter, 'compiled') !== true;
 		});
 
 		if (uncompiled.length === 0) {
@@ -84,7 +85,7 @@ export const wikiStatsSkill: KarMindSkill = {
 	async execute(context: SkillContext, wikiFolder?: string): Promise<SkillResult> {
 		const folder = wikiFolder ?? 'wiki';
 		const wikiFiles = context.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(folder + '/'));
+			.filter(f => f.path.startsWith(folder + '/') && !isSpecialWikiFile(f));
 
 		if (wikiFiles.length === 0) {
 			return {success: true, content: 'No wiki pages found.'};
@@ -117,7 +118,7 @@ export const findOrphansSkill: KarMindSkill = {
 	async execute(context: SkillContext, wikiFolder?: string): Promise<SkillResult> {
 		const folder = wikiFolder ?? 'wiki';
 		const wikiFiles = context.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(folder + '/') && f.basename !== '_index');
+			.filter(f => f.path.startsWith(folder + '/') && !isSpecialWikiFile(f));
 
 		const orphans: string[] = [];
 

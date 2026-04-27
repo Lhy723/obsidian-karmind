@@ -1,9 +1,9 @@
-import {App, normalizePath, PluginSettingTab, Setting} from "obsidian";
+import {App, normalizePath, Notice, PluginSettingTab, Setting} from "obsidian";
 import * as Obsidian from "obsidian";
 import KarMindPlugin from "./main";
 import {skillManager} from "./skills/manager";
 import {PermissionLevel} from "./types";
-import {type KarMindLanguage, t} from "./i18n";
+import {resolveKarMindLanguage, type KarMindLanguage, t} from "./i18n";
 import {getSecretComponentConstructor} from "./utils/secrets";
 import {confirmAction} from "./ui/confirm";
 
@@ -14,9 +14,9 @@ export interface KarMindSettings {
 	model: string;
 	rawFolder: string;
 	wikiFolder: string;
+	skillsFolder: string;
 	maxTokens: number;
 	temperature: number;
-	enableStreaming: boolean;
 	autoCompile: boolean;
 	healthCheckInterval: number;
 	defaultPermission: PermissionLevel;
@@ -24,15 +24,15 @@ export interface KarMindSettings {
 }
 
 export const DEFAULT_SETTINGS: KarMindSettings = {
-	language: 'zh',
+	language: 'system',
 	apiBaseUrl: 'https://api.openai.com/v1',
 	apiKeySecretId: 'karmind-api-key',
 	model: 'gpt-4o-mini',
 	rawFolder: 'raw',
 	wikiFolder: 'wiki',
+	skillsFolder: 'skills',
 	maxTokens: 4096,
 	temperature: 0.3,
-	enableStreaming: false,
 	autoCompile: false,
 	healthCheckInterval: 0,
 	defaultPermission: 'basic',
@@ -56,9 +56,22 @@ export class KarMindSettingTab extends PluginSettingTab {
 		new Setting(containerEl).setName('KarMind').setHeading();
 
 		new Setting(containerEl)
+			.setName(t(language, 'settingsUsageGuideName'))
+			.setDesc(t(language, 'settingsUsageGuideDesc'))
+			.addButton(button => button
+				.setButtonText(t(language, 'settingsUsageGuideButton'))
+				.onClick(() => {
+					const guidePath = resolveKarMindLanguage(language) === 'zh'
+						? 'docs/USAGE.zh-CN.md'
+						: 'docs/USAGE.md';
+					window.open(`https://github.com/Lhy723/obsidian-karmind/blob/master/${guidePath}`);
+				}));
+
+		new Setting(containerEl)
 			.setName(t(language, 'settingsLanguageName'))
 			.setDesc(t(language, 'settingsLanguageDesc'))
 			.addDropdown(dropdown => dropdown
+				.addOption('system', t(language, 'languageSystem'))
 				.addOption('zh', t(language, 'languageChinese'))
 				.addOption('en', t(language, 'languageEnglish'))
 				.setValue(this.plugin.settings.language)
@@ -140,6 +153,17 @@ export class KarMindSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
+			.setName(t(language, 'settingsSkillsFolderName'))
+			.setDesc(t(language, 'settingsSkillsFolderDesc'))
+			.addText(text => text
+				.setPlaceholder('skills')
+				.setValue(this.plugin.settings.skillsFolder)
+				.onChange(async (value) => {
+					this.plugin.settings.skillsFolder = normalizePath(value || DEFAULT_SETTINGS.skillsFolder);
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
 			.setName(t(language, 'settingsMaxTokensName'))
 			.setDesc(t(language, 'settingsMaxTokensDesc'))
 			.addText(text => {
@@ -176,16 +200,6 @@ export class KarMindSettingTab extends PluginSettingTab {
 						}
 					});
 			});
-
-		new Setting(containerEl)
-			.setName(t(language, 'settingsStreamingName'))
-			.setDesc(t(language, 'settingsStreamingDesc'))
-			.addToggle(toggle => toggle
-				.setValue(this.plugin.settings.enableStreaming)
-				.onChange(async (value) => {
-					this.plugin.settings.enableStreaming = value;
-					await this.plugin.saveSettings();
-				}));
 
 		new Setting(containerEl)
 			.setName(t(language, 'settingsAutoCompileName'))
@@ -242,7 +256,17 @@ export class KarMindSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		new Setting(containerEl).setName(t(language, 'settingsSkillsName')).setHeading();
+		new Setting(containerEl)
+			.setName(t(language, 'settingsSkillsName'))
+			.setHeading()
+			.addButton(button => button
+				.setIcon('refresh-cw')
+				.setTooltip(t(language, 'settingsRefreshSkills'))
+				.onClick(async () => {
+					const count = await this.plugin.vaultSkillLoader.reload();
+					new Notice(t(language, 'settingsRefreshSkillsLoaded', {count}));
+					this.display();
+				}));
 
 		const skills = skillManager.getAllSkills();
 		if (skills.length === 0) {

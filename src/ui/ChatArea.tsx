@@ -1,7 +1,7 @@
 import {useEffect, useMemo, useRef} from 'react';
 import {Component, MarkdownRenderer} from 'obsidian';
 import {ChatMessage, type HealthCheckIssue, type TaskHealthReport, type TaskProgress} from '../types';
-import {useApp} from './hooks';
+import {useApp, usePlugin} from './hooks';
 import {AnimatedList} from './AnimatedList';
 import {BlurText} from './BlurText';
 import {ShinyText} from './ShinyText';
@@ -408,27 +408,65 @@ function getTaskStatusLabel(status: TaskProgress['status'], language: KarMindLan
 
 function MarkdownContent({content, component, language}: {content: string; component: Component; language: KarMindLanguage}) {
 	const app = useApp();
+	const plugin = usePlugin();
 	const contentRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
 		const el = contentRef.current;
 		if (!el) return;
+		const sourcePath = `${plugin.settings.wikiFolder}/_index.md`;
+
+		const handleClick = (event: MouseEvent) => {
+			const target = event.target;
+			if (!(target instanceof Element)) return;
+
+			const anchor = target.closest('a.internal-link, a[data-href]');
+			if (!(anchor instanceof HTMLAnchorElement)) return;
+
+			const linkText = getInternalLinkText(anchor);
+			if (!linkText) return;
+
+			event.preventDefault();
+			event.stopPropagation();
+			void app.workspace.openLinkText(linkText, sourcePath, event.metaKey || event.ctrlKey)
+				.catch((error) => console.error('[KarMind] Failed to open internal link', linkText, error));
+		};
+
+		el.addEventListener('click', handleClick);
 
 		el.empty();
 		if (!content.trim()) {
 			el.setText(t(language, 'emptyMessage'));
-			return;
+			return () => el.removeEventListener('click', handleClick);
 		}
 
-		void MarkdownRenderer.render(app, content, el, '', component)
+		void MarkdownRenderer.render(app, content, el, sourcePath, component)
 			.catch((error) => {
 				console.error('[KarMind] Markdown render failed', error);
 				el.empty();
 				el.setText(content);
 			});
-	}, [app, content, component, language]);
+
+		return () => el.removeEventListener('click', handleClick);
+	}, [app, content, component, language, plugin.settings.wikiFolder]);
 
 	return <div className="karmind-message-content markdown-rendered" ref={contentRef} />;
+}
+
+function getInternalLinkText(anchor: HTMLAnchorElement): string | null {
+	const dataHref = anchor.getAttribute('data-href')?.trim();
+	if (dataHref) return dataHref;
+
+	const href = anchor.getAttribute('href')?.trim();
+	if (href && !isExternalHref(href)) {
+		return decodeURIComponent(href.replace(/^#/, '').replace(/\.md$/i, '')).trim() || null;
+	}
+
+	return anchor.textContent?.trim() || null;
+}
+
+function isExternalHref(href: string): boolean {
+	return /^[a-z][a-z0-9+.-]*:/i.test(href);
 }
 
 function getRenderableContent(message: ChatMessage, language: KarMindLanguage): string {

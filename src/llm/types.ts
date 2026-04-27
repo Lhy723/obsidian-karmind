@@ -8,7 +8,6 @@ export interface LLMChatRequest {
 	messages: LLMMessage[];
 	max_tokens?: number;
 	temperature?: number;
-	stream?: boolean;
 }
 
 export interface LLMChatResponse {
@@ -26,19 +25,4 @@ export interface LLMChatResponse {
 		completion_tokens: number;
 		total_tokens: number;
 	};
-}
-
-export interface LLMStreamChunk {
-	id: string;
-	object: string;
-	created: number;
-	model: string;
-	choices: {
-		index: number;
-		delta: {
-			role?: string;
-			content?: string;
-		};
-		finish_reason: string | null;
-	}[];
 }

@@ -6,6 +6,8 @@ import {ensureFolder} from '../utils/ensure-folder';
 import {t} from '../i18n';
 import {type FileOperationLog} from '../types';
 import {SourceManifest, WikiStateStore} from './wiki-state';
+import {isSpecialWikiFile, WIKI_INTERNAL_FOLDER, WIKI_REPORTS_FOLDER} from './wiki-paths';
+import {getKarMindValue, writeKarMindDocument} from './frontmatter';
 
 export interface CompileProgress {
 	phase: 'preparing' | 'scanning' | 'file-start' | 'file-complete' | 'file-error' | 'complete';
@@ -238,8 +240,7 @@ export class Compiler {
 			if (file.path.startsWith(folder.path + '/')) {
 				const content = await this.app.vault.cachedRead(file);
 				const cache = this.app.metadataCache.getFileCache(file);
-				const karmindMeta = cache?.frontmatter?.karmind as Record<string, unknown> | undefined;
-				const legacyCompiled = karmindMeta?.compiled === true;
+				const legacyCompiled = getKarMindValue(cache?.frontmatter, 'compiled') === true;
 				const legacyWikiPath = this.getWikiPath(file.name);
 				const legacyWiki = this.app.vault.getAbstractFileByPath(legacyWikiPath);
 				if (!force && legacyCompiled && !manifest.sources[file.path] && legacyWiki instanceof TFile) {
@@ -266,17 +267,12 @@ export class Compiler {
 	}
 
 	private async writeWikiPage(wikiPath: string, content: string, sourcePath: string): Promise<'create' | 'update'> {
-		const pageContent = withWikiFrontmatter(content, sourcePath);
-
-		const existingFile = this.app.vault.getAbstractFileByPath(wikiPath);
-		if (existingFile instanceof TFile) {
-			await this.app.vault.modify(existingFile, pageContent);
-			return 'update';
-		} else {
-			await ensureFolder(this.app, wikiPath.substring(0, wikiPath.lastIndexOf('/')));
-			await this.app.vault.create(wikiPath, pageContent);
-			return 'create';
-		}
+		await ensureFolder(this.app, wikiPath.substring(0, wikiPath.lastIndexOf('/')));
+		return await writeKarMindDocument(this.app, wikiPath, content, {
+			type: 'wiki',
+			source: sourcePath,
+			compiledAt: new Date().toISOString(),
+		});
 	}
 
 	private async applyCompilationOutput(
@@ -366,7 +362,7 @@ export class Compiler {
 			}
 		}
 
-		let indexContent = `---\nkarmind:\n  type: index\n  updatedAt: ${Date.now()}\n---\n\n# Wiki Index\n\n`;
+		let indexContent = '# Wiki Index\n\n';
 
 		indexContent += `## All Pages\n\n`;
 		for (const file of wikiFiles) {
@@ -384,10 +380,16 @@ export class Compiler {
 
 		const existingIndex = this.app.vault.getAbstractFileByPath(indexPath);
 		if (existingIndex instanceof TFile) {
-			await this.app.vault.modify(existingIndex, indexContent);
+			await writeKarMindDocument(this.app, indexPath, indexContent, {
+				type: 'index',
+				updatedAt: new Date().toISOString(),
+			});
 			return 'update';
 		} else {
-			await this.app.vault.create(indexPath, indexContent);
+			await writeKarMindDocument(this.app, indexPath, indexContent, {
+				type: 'index',
+				updatedAt: new Date().toISOString(),
+			});
 			return 'create';
 		}
 	}
@@ -421,20 +423,15 @@ function sanitizeWikiActionPath(path: string): string {
 	if (!normalized || normalized.startsWith('../') || normalized.includes('/../') || normalized === '..') {
 		throw new Error(`Unsafe wiki action path: ${path}`);
 	}
-	if (normalized === '_index.md' || normalized === 'log.md' || normalized.startsWith('.karmind/')) {
+	if (
+		normalized === '_index.md'
+		|| normalized === 'log.md'
+		|| normalized.startsWith(`${WIKI_INTERNAL_FOLDER}/`)
+		|| normalized.startsWith(`${WIKI_REPORTS_FOLDER}/`)
+	) {
 		throw new Error(`Wiki action path is reserved: ${path}`);
 	}
 	return normalized.endsWith('.md') ? normalized : `${normalized}.md`;
-}
-
-function withWikiFrontmatter(content: string, sourcePath: string): string {
-	const trimmed = content.trimStart();
-	if (trimmed.startsWith('---')) return content;
-	return `---\nkarmind:\n  type: wiki\n  source: "${sourcePath}"\n  compiledAt: ${Date.now()}\n---\n\n${content}`;
-}
-
-function isSpecialWikiFile(file: TFile): boolean {
-	return file.basename === '_index' || file.basename === 'log' || file.path.includes('/.karmind/');
 }
 
 function createPreview(content: string): string {

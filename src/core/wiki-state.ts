@@ -1,5 +1,6 @@
 import {App, TFile} from 'obsidian';
 import {ensureFolder} from '../utils/ensure-folder';
+import {writeKarMindDocument} from './frontmatter';
 
 export interface SourceManifestEntry {
 	path: string;
@@ -69,7 +70,7 @@ export class WikiStateStore {
 		const content = JSON.stringify(manifest, null, 2);
 		const existing = this.app.vault.getAbstractFileByPath(manifestPath);
 		if (existing instanceof TFile) {
-			await this.app.vault.modify(existing, content);
+			await this.app.vault.process(existing, () => content);
 			return 'update';
 		}
 
@@ -116,8 +117,10 @@ export class WikiStateStore {
 			return 'update';
 		}
 
-		const content = `---\nkarmind:\n  type: log\n  updatedAt: ${Date.now()}\n---\n\n# Wiki Log\n\n${block}`;
-		await this.app.vault.create(logPath, content);
+		await writeKarMindDocument(this.app, logPath, `# Wiki Log\n\n${block}`, {
+			type: 'log',
+			updatedAt: new Date().toISOString(),
+		});
 		return 'create';
 	}
 

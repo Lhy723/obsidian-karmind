@@ -4,6 +4,7 @@ import {KarMindSettings} from '../settings';
 import {SYSTEM_PROMPT_QA} from '../constants';
 import {t} from '../i18n';
 import {type FileOperationLog} from '../types';
+import {isSpecialWikiFile} from './wiki-paths';
 
 interface QAContextOptions {
 	onFileOperation?: (operation: FileOperationLog) => void;
@@ -87,7 +88,7 @@ export class QAEngine {
 		}
 
 		return this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index' && f.basename !== 'log' && !f.path.includes('/.karmind/'));
+			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && !isSpecialWikiFile(f));
 	}
 
 	private extractKeywords(question: string): string[] {

@@ -2,7 +2,9 @@
 
 [中文说明](README.zh-CN.md)
 
-KarMind is an Obsidian plugin for building a personal knowledge wiki with an LLM. It follows a "collect, compile, ask, backfill, improve" workflow inspired by Karpathy-style knowledge compilation.
+KarMind is an Obsidian plugin for building a personal knowledge wiki with an LLM. It follows a "collect, compile, ask, backfill, improve" workflow inspired by Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) pattern.
+
+For step-by-step guidance, see the [usage guide](docs/USAGE.md).
 
 ## What KarMind does
 
@@ -15,8 +17,8 @@ KarMind is an Obsidian plugin for building a personal knowledge wiki with an LLM
 
 ## Workflow
 
-1. Put source material into `raw/`.
-2. Run `/compile` to turn raw material into wiki pages.
+1. Put source material into `raw/`. For web articles, Obsidian Web Clipper is recommended.
+2. Run `/compile` to turn raw material into wiki pages. This can consume many LLM tokens.
 3. Ask questions with `/qa your question`.
 4. Save useful outputs with `/backfill content`.
 5. Run `/health` to inspect wiki quality.
@@ -27,7 +29,7 @@ KarMind keeps source compilation state in `wiki/.karmind/source-manifest.json` u
 
 | Command | Description |
 | --- | --- |
-| `/compile` | Compile changed raw notes into wiki pages. |
+| `/compile` | Compile changed raw notes into wiki pages. This can consume many tokens. |
 | `/compile --force` | Recompile all raw notes. |
 | `/qa your question` | Answer using relevant wiki pages. |
 | `/backfill content` | Save analysis or generated content back into the wiki. |
@@ -42,13 +44,12 @@ KarMind can also suggest workflow actions in chat. Suggested actions require use
 
 ## Settings
 
-- **Language**: English or Chinese UI text.
+- **Language**: Follow Obsidian, English, or Chinese UI text.
 - **LLM API base URL**: OpenAI-compatible endpoint, for example `https://api.openai.com/v1`.
 - **API key**: Stored through Obsidian SecretStorage. The default secret ID is `karmind-api-key`.
 - **Model**: Model name passed to the OpenAI-compatible API.
 - **Raw folder**: Folder for source material.
 - **Wiki folder**: Folder for compiled wiki pages.
-- **Streaming responses**: Uses browser `fetch` and Server-Sent Events. Disable it if your provider blocks `app://obsidian.md` by CORS.
 - **Default permission**: Basic Q&A or enhanced note operations.
 
 ## Privacy and network use
@@ -76,7 +77,7 @@ KarMind writes only inside your Obsidian vault:
 - `wiki/_index.md`: generated wiki index.
 - `wiki/log.md`: append-only workflow log.
 - `wiki/.karmind/source-manifest.json`: source hash cache.
-- `wiki/_health-*.md`: health-check reports.
+- `wiki/_reports/health/`: health-check reports.
 
 ## Installation for development
 
@@ -101,7 +102,7 @@ For a GitHub release, attach these files as release assets:
 - `manifest.json`
 - `styles.css`
 
-The release tag must match `manifest.json` exactly, for example `0.1.0`.
+The release tag must match `manifest.json` exactly, for example `0.1.1`.
 
 ## Community plugin submission
 
@@ -119,6 +120,7 @@ Submit this entry to `obsidianmd/obsidian-releases`:
 
 ## Third-party code and dependencies
 
+- The knowledge workflow is inspired by Andrej Karpathy's [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) idea file.
 - React and React DOM are used for the plugin interface.
 - `motion` is used for UI animation.
 - Animated UI patterns are adapted from React Bits examples for `AnimatedList`, `BlurText`, and `ShinyText`.

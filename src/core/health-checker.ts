@@ -6,6 +6,8 @@ import {type FileOperationLog, HealthCheckIssue, HealthCheckReport} from '../typ
 import {ensureFolder} from '../utils/ensure-folder';
 import {t} from '../i18n';
 import {WikiStateStore} from './wiki-state';
+import {getHealthReportsFolder, isSpecialWikiFile} from './wiki-paths';
+import {writeKarMindDocument} from './frontmatter';
 
 interface WikiGraphStats {
 	nodes: number;
@@ -159,7 +161,7 @@ export class HealthChecker {
 		}
 
 		return this.app.vault.getMarkdownFiles()
-			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && f.basename !== '_index' && f.basename !== 'log' && !f.path.includes('/.karmind/'));
+			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && !isSpecialWikiFile(f));
 	}
 
 	private async readWikiContent(files: TFile[], onFileOperation?: (operation: FileOperationLog) => void): Promise<string> {
@@ -355,13 +357,15 @@ export class HealthChecker {
 	}
 
 	private async saveReport(report: HealthCheckReport): Promise<string> {
-		await ensureFolder(this.app, this.settings.wikiFolder);
+		const reportsFolder = getHealthReportsFolder(this.settings.wikiFolder);
+		await ensureFolder(this.app, reportsFolder);
 		const timestamp = new Date(report.timestamp).toISOString().replace(/[:.]/g, '-');
-		const filePath = `${this.settings.wikiFolder}/_health-${timestamp}.md`;
+		const filePath = `${reportsFolder}/health-${timestamp}.md`;
 
-		const frontmatter = `---\nkarmind:\n  type: health-report\n  timestamp: ${report.timestamp}\n---\n\n`;
-
-		await this.app.vault.create(filePath, frontmatter + report.summary);
+		await writeKarMindDocument(this.app, filePath, report.summary, {
+			type: 'health-report',
+			timestamp: new Date(report.timestamp).toISOString(),
+		});
 		return filePath;
 	}
 }

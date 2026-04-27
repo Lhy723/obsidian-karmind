@@ -1,11 +1,18 @@
-export type KarMindLanguage = 'zh' | 'en';
+import {getLanguage} from 'obsidian';
+
+export type KarMindResolvedLanguage = 'zh' | 'en';
+export type KarMindLanguage = KarMindResolvedLanguage | 'system';
 
 const translations = {
 	en: {
 		settingsLanguageName: 'Language',
 		settingsLanguageDesc: 'Display language for KarMind UI and built-in messages.',
+		languageSystem: 'Follow Obsidian',
 		languageChinese: '中文',
 		languageEnglish: 'English',
+		settingsUsageGuideName: 'Usage guide',
+		settingsUsageGuideDesc: 'Open the step-by-step KarMind workflow guide.',
+		settingsUsageGuideButton: 'Open guide',
 		settingsApiBaseName: 'LLM API base URL',
 		settingsApiBaseDesc: 'OpenAI-compatible API endpoint (e.g. https://api.openai.com/v1)',
 		settingsApiKeyName: 'API key',
@@ -16,12 +23,12 @@ const translations = {
 		settingsRawFolderDesc: 'Folder path for collecting raw materials',
 		settingsWikiFolderName: 'Wiki folder',
 		settingsWikiFolderDesc: 'Folder path for compiled wiki pages',
+		settingsSkillsFolderName: 'Skills folder',
+		settingsSkillsFolderDesc: 'Folder path for declarative skills. Each skill is a folder containing skill.md. KarMind reads instructions without executing code.',
 		settingsMaxTokensName: 'Max tokens',
 		settingsMaxTokensDesc: 'Maximum tokens for LLM responses (256-16384)',
 		settingsTemperatureName: 'Temperature',
 		settingsTemperatureDesc: 'LLM sampling temperature, 0-2 (lower = more deterministic)',
-		settingsStreamingName: 'Enable streaming responses',
-		settingsStreamingDesc: 'Use browser fetch with SSE. Disable this if your API blocks app://obsidian.md by CORS.',
 		settingsAutoCompileName: 'Auto compile',
 		settingsAutoCompileDesc: 'Automatically compile raw notes when they are added',
 		settingsHealthIntervalName: 'Health check interval',
@@ -30,6 +37,9 @@ const translations = {
 		settingsDefaultPermissionDesc: 'Default permission level for new conversations. Enhanced Notes can read and write wiki files, so Basic Q&A is safer by default.',
 		settingsSkillsName: 'Skills',
 		settingsNoSkills: 'No skills registered.',
+		settingsRefreshSkills: 'Refresh skills',
+		settingsRefreshSkillsDesc: 'Reload declarative skills from the skills folder.',
+		settingsRefreshSkillsLoaded: 'Reloaded {count} vault skills.',
 		unknownError: 'Unknown error',
 		statusNotConfigured: 'Not configured',
 		statusProcessing: 'Processing...',
@@ -69,6 +79,7 @@ const translations = {
 		setupHint: 'Configure your LLM API key in Settings > KarMind before running model-powered actions.',
 		availableSkills: 'Available skills:',
 		availableCommands: 'Available commands:',
+		commandSuggestionsLabel: 'Command suggestions',
 		orChat: 'Or just type a message to chat with the LLM.',
 		commandLabel: 'Command',
 		commandDescCompile: 'Compile raw notes into wiki pages',
@@ -109,6 +120,8 @@ const translations = {
 		autoCompileSkippedNoApiKey: 'Auto compile skipped because the LLM API key is not configured.',
 		skillEnabled: 'enabled',
 		skillDisabled: 'disabled',
+		usageQa: 'Usage: /qa <question>\nExample: /qa What is the difference between dynamic programming and greedy algorithms?',
+		usageBackfill: 'Usage: /backfill <content>\nExample: /backfill This analysis should be saved into the wiki.',
 		usageSkill: 'Usage: /skill <id> [args...]',
 		suggestionDismissed: '[Suggestion dismissed]',
 		unsupportedFixLinksNote: 'Note: KarMind does not currently support a `fix-links` command. Use `/health` to identify broken links, then create or edit the missing wiki pages manually or ask KarMind to draft content for `/backfill`.',
@@ -230,13 +243,19 @@ const translations = {
 		suggestBackfillDesc: 'This looks like an insight worth preserving. I can backfill it into the wiki after you approve.',
 		suggestQaLabel: 'Ask wiki',
 		suggestQaDesc: 'This looks like a question that may benefit from wiki context. I can answer it using the compiled knowledge base.',
+		suggestSkillLabel: 'Use skill: {name}',
+		suggestSkillDesc: 'This looks like it matches the "{name}" skill. I can run that skill with your message as input after you approve.',
 		workflowLanguageInstruction: 'Respond in English unless the user explicitly asks for another language.',
 	},
 	zh: {
 		settingsLanguageName: '语言',
 		settingsLanguageDesc: 'KarMind 界面和内置消息的显示语言。',
+		languageSystem: '跟随 Obsidian',
 		languageChinese: '中文',
 		languageEnglish: 'English',
+		settingsUsageGuideName: '使用指南',
+		settingsUsageGuideDesc: '打开 KarMind 工作流分步使用说明。',
+		settingsUsageGuideButton: '打开指南',
 		settingsApiBaseName: 'LLM API 地址',
 		settingsApiBaseDesc: '兼容 OpenAI 的 API endpoint，例如 https://api.openai.com/v1',
 		settingsApiKeyName: 'API key',
@@ -247,12 +266,12 @@ const translations = {
 		settingsRawFolderDesc: '用于收集原始素材的文件夹路径',
 		settingsWikiFolderName: 'Wiki 文件夹',
 		settingsWikiFolderDesc: '用于保存编译后 wiki 页面的文件夹路径',
+		settingsSkillsFolderName: 'Skills 文件夹',
+		settingsSkillsFolderDesc: '用于保存声明式 skills 的文件夹路径。每个 skill 是一个包含 skill.md 的文件夹。KarMind 只读取说明，不执行代码。',
 		settingsMaxTokensName: '最大 tokens',
 		settingsMaxTokensDesc: 'LLM 响应的最大 tokens（256-16384）',
 		settingsTemperatureName: 'Temperature',
 		settingsTemperatureDesc: 'LLM 采样温度，0-2（越低越稳定）',
-		settingsStreamingName: '启用流式响应',
-		settingsStreamingDesc: '使用浏览器 fetch + SSE。如果 API 被 app://obsidian.md 的 CORS 拦截，请关闭。',
 		settingsAutoCompileName: '自动编译',
 		settingsAutoCompileDesc: 'raw 笔记添加后自动编译',
 		settingsHealthIntervalName: '健康检查间隔',
@@ -261,6 +280,9 @@ const translations = {
 		settingsDefaultPermissionDesc: '新对话的默认权限。增强笔记可以读写 wiki 文件，因此默认使用基础问答更安全。',
 		settingsSkillsName: 'Skills',
 		settingsNoSkills: '暂无已注册 skills。',
+		settingsRefreshSkills: '刷新 skills',
+		settingsRefreshSkillsDesc: '从 skills 文件夹重新加载声明式 skills。',
+		settingsRefreshSkillsLoaded: '已重新加载 {count} 个 vault skills。',
 		unknownError: '未知错误',
 		statusNotConfigured: '未配置',
 		statusProcessing: '处理中...',
@@ -300,6 +322,7 @@ const translations = {
 		setupHint: '请先在 设置 > KarMind 中配置 LLM API key，再运行模型相关操作。',
 		availableSkills: '可用 skills：',
 		availableCommands: '可用命令：',
+		commandSuggestionsLabel: '命令建议',
 		orChat: '也可以直接输入消息与 LLM 对话。',
 		commandLabel: '命令',
 		commandDescCompile: '把 raw 笔记编译成 wiki 页面',
@@ -340,6 +363,8 @@ const translations = {
 		autoCompileSkippedNoApiKey: '由于尚未配置 LLM API key，已跳过自动编译。',
 		skillEnabled: '已启用',
 		skillDisabled: '已禁用',
+		usageQa: '用法：/qa <问题>\n例如：/qa 动态规划和贪心算法有什么区别？',
+		usageBackfill: '用法：/backfill <内容>\n例如：/backfill 请把这段分析保存进 wiki。',
 		usageSkill: '用法：/skill <id> [args...]',
 		suggestionDismissed: '[已忽略建议]',
 		unsupportedFixLinksNote: '注意：KarMind 目前不支持 `fix-links` 命令。请使用 `/health` 定位断链，然后手动创建或编辑缺失的 wiki 页面，或让 KarMind 起草可用于 `/backfill` 的内容。',
@@ -461,6 +486,8 @@ const translations = {
 		suggestBackfillDesc: '这像是值得保存的洞见。你确认后，我可以把它回填到 wiki 中。',
 		suggestQaLabel: '基于 wiki 提问',
 		suggestQaDesc: '这类问题可能需要 wiki 上下文。我可以基于已编译知识库回答。',
+		suggestSkillLabel: '使用 skill：{name}',
+		suggestSkillDesc: '这看起来符合 “{name}” skill。我可以在你确认后用当前消息作为输入执行这个 skill。',
 		workflowLanguageInstruction: '除非用户明确要求其他语言，否则请使用中文回答。',
 	},
 } as const;
@@ -468,6 +495,12 @@ const translations = {
 type TranslationKey = keyof typeof translations.en;
 
 export function t(language: KarMindLanguage, key: TranslationKey, vars: Record<string, string | number> = {}): string {
-	const template = translations[language]?.[key] ?? translations.en[key] ?? key;
+	const resolvedLanguage = resolveKarMindLanguage(language);
+	const template = translations[resolvedLanguage]?.[key] ?? translations.en[key] ?? key;
 	return Object.entries(vars).reduce((text, [name, value]) => text.split(`{${name}}`).join(String(value)), template);
+}
+
+export function resolveKarMindLanguage(language: KarMindLanguage): KarMindResolvedLanguage {
+	if (language === 'zh' || language === 'en') return language;
+	return getLanguage().toLowerCase().startsWith('zh') ? 'zh' : 'en';
 }
