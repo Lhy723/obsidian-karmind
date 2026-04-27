@@ -102,7 +102,7 @@ For a GitHub release, attach these files as release assets:
 - `manifest.json`
 - `styles.css`
 
-The release tag must match `manifest.json` exactly, for example `0.1.1`.
+The release tag must match `manifest.json` exactly, for example `0.1.2`.
 
 ## Community plugin submission
 

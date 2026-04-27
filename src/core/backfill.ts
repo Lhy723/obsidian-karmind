@@ -41,7 +41,7 @@ export class BackfillEngine {
 	async backfill(content: string, options: BackfillOptions = {}): Promise<string> {
 		await ensureFolder(this.app, this.settings.wikiFolder);
 
-		const wikiContext = await this.getWikiContext(options.onFileOperation);
+		const wikiContext = this.getWikiContext(options.onFileOperation);
 
 		const result = await this.llmClient.chat([
 			{role: 'system', content: SYSTEM_PROMPT_BACKFILL},
@@ -182,7 +182,7 @@ export class BackfillEngine {
 		return applied;
 	}
 
-	private async getWikiContext(onFileOperation?: (operation: FileOperationLog) => void): Promise<string> {
+	private getWikiContext(onFileOperation?: (operation: FileOperationLog) => void): string {
 		const wikiFiles = this.app.vault.getMarkdownFiles()
 			.filter(f => f.path.startsWith(this.settings.wikiFolder + '/') && !isSpecialWikiFile(f));
 		onFileOperation?.({

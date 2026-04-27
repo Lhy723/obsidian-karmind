@@ -49,7 +49,7 @@ export const listRawSkill: KarMindSkill = {
 	name: 'List raw notes',
 	description: 'List all raw notes that have not been compiled yet',
 	icon: 'list',
-	async execute(context: SkillContext, rawFolder?: string): Promise<SkillResult> {
+	execute(context: SkillContext, rawFolder?: string): SkillResult {
 		const folder = rawFolder ?? 'raw';
 		const folderFile = context.app.vault.getAbstractFileByPath(folder);
 
@@ -115,7 +115,7 @@ export const findOrphansSkill: KarMindSkill = {
 	name: 'Find orphan pages',
 	description: 'Find wiki pages with no incoming or outgoing links',
 	icon: 'link',
-	async execute(context: SkillContext, wikiFolder?: string): Promise<SkillResult> {
+	execute(context: SkillContext, wikiFolder?: string): SkillResult {
 		const folder = wikiFolder ?? 'wiki';
 		const wikiFiles = context.app.vault.getMarkdownFiles()
 			.filter(f => f.path.startsWith(folder + '/') && !isSpecialWikiFile(f));

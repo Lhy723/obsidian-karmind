@@ -19,7 +19,7 @@ export interface KarMindSkill {
 	description: string;
 	icon?: string;
 	config?: Record<string, unknown>;
-	execute(context: SkillContext, ...args: string[]): Promise<SkillResult>;
+	execute(context: SkillContext, ...args: string[]): SkillResult | Promise<SkillResult>;
 }
 
 export interface SkillDefinition {

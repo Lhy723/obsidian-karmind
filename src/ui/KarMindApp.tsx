@@ -34,7 +34,7 @@ function formatErrorMessage(error: unknown, language: KarMindLanguage): string {
 interface SlashCommand {
 	name: string;
 	description: string;
-	execute: (args: string, session: ChatSession) => Promise<void>;
+	execute: (args: string, session: ChatSession) => void | Promise<void>;
 }
 
 const API_COMMANDS = new Set(['/compile', '/qa', '/backfill', '/health']);
@@ -568,10 +568,10 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		cmds.set('/skills', {
 			name: '/skills',
 			description: t(language, 'commandDescSkills'),
-			execute: async (_args, session) => {
-				const skills = skillManager.getAllSkills();
-				const lines = skills.map(s => {
-					const status = skillManager.isEnabled(s.id) ? t(language, 'skillEnabled') : t(language, 'skillDisabled');
+				execute: (_args, session) => {
+					const skills = skillManager.getAllSkills();
+					const lines = skills.map(s => {
+						const status = skillManager.isEnabled(s.id) ? t(language, 'skillEnabled') : t(language, 'skillDisabled');
 					return `  ${s.name} (${s.id}) [${status}] -- ${s.description}`;
 				});
 				pushMessage(session.id, {role: 'assistant', content: `${t(language, 'availableSkills')}\n\n${lines.join('\n')}`, timestamp: Date.now()});
@@ -595,10 +595,10 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		cmds.set('/help', {
 			name: '/help',
 			description: t(language, 'commandDescHelp'),
-			execute: async (_args, session) => {
-				const lines: string[] = [t(language, 'availableCommands'), ''];
-				for (const [, cmd] of cmds) {
-					lines.push(`  ${cmd.name} -- ${cmd.description}`);
+				execute: (_args, session) => {
+					const lines: string[] = [t(language, 'availableCommands'), ''];
+					for (const [, cmd] of cmds) {
+						lines.push(`  ${cmd.name} -- ${cmd.description}`);
 				}
 				lines.push('', t(language, 'orChat'));
 				pushMessage(session.id, {role: 'assistant', content: lines.join('\n'), timestamp: Date.now()});
@@ -607,17 +607,17 @@ export function KarMindApp({sessionStore, llmClient, markdownComponent}: {sessio
 		cmds.set('/clear', {
 			name: '/clear',
 			description: t(language, 'commandDescClear'),
-			execute: async (_args, session) => {
-				sessionStore.update(session.id, {messages: []});
-				setSessions([...sessionStore.getAll()]);
-			},
+				execute: (_args, session) => {
+					sessionStore.update(session.id, {messages: []});
+					setSessions([...sessionStore.getAll()]);
+				},
 		});
 		cmds.set('/new', {
 			name: '/new',
 			description: t(language, 'commandDescNew'),
-			execute: async (_args, session) => {
-				createNewSession(session.permission);
-			},
+				execute: (_args, session) => {
+					createNewSession(session.permission);
+				},
 		});
 	}, [plugin, sessionStore, pushMessage, updateMessage, getSkillContext, createNewSession, language]);
 

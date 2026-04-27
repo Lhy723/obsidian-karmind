@@ -102,7 +102,7 @@ npm run build
 - `manifest.json`
 - `styles.css`
 
-release tag 必须与 `manifest.json` 中的版本号完全一致，例如 `0.1.1`。
+release tag 必须与 `manifest.json` 中的版本号完全一致，例如 `0.1.2`。
 
 ## 社区插件提交信息
 

@@ -17,13 +17,13 @@ export class KarMindView extends ItemView {
 	}
 
 	getViewType(): string { return VIEW_TYPE_KARMIND; }
-	getDisplayText(): string { return 'KarMind'; }
+	getDisplayText(): string { return 'Knowledge assistant'; }
 	getIcon(): string { return 'brain'; }
 
 	updateLLMClient(_settings: KarMindSettings): void {
 	}
 
-	async onOpen(): Promise<void> {
+	onOpen(): Promise<void> {
 		const container = this.containerEl.children[1] as HTMLElement;
 		container.addClass('karmind-view-content');
 		container.empty();
@@ -40,11 +40,13 @@ export class KarMindView extends ItemView {
 				</PluginContext.Provider>
 			</StrictMode>,
 		);
+		return Promise.resolve();
 	}
 
-	async onClose(): Promise<void> {
+	onClose(): Promise<void> {
 		this.root?.unmount();
 		this.root = null;
 		(this.containerEl.children[1] as HTMLElement | undefined)?.removeClass('karmind-view-content');
+		return Promise.resolve();
 	}
 }

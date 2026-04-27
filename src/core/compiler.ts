@@ -219,7 +219,7 @@ export class Compiler {
 	}
 
 	private async compileFile(fileName: string, content: string, instruction?: string): Promise<string> {
-		const existingWiki = await this.getExistingWikiContext();
+		const existingWiki = this.getExistingWikiContext();
 
 		const userMessage = instruction
 			? `Compile the following raw note into the persistent wiki. Prefer structured JSON actions that create, update, or append to multiple wiki pages when useful.\n\nInstruction: ${instruction}\n\nFile: ${fileName}\n\nContent:\n${content}\n\n${existingWiki}`
@@ -325,7 +325,7 @@ export class Compiler {
 		return Array.from(new Set(touchedPages));
 	}
 
-	private async getExistingWikiContext(): Promise<string> {
+	private getExistingWikiContext(): string {
 		const wikiFolder = this.app.vault.getAbstractFileByPath(this.settings.wikiFolder);
 		if (!wikiFolder || !(wikiFolder instanceof TFolder)) {
 			return '';

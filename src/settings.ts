@@ -53,7 +53,7 @@ export class KarMindSettingTab extends PluginSettingTab {
 		containerEl.empty();
 		const language = this.plugin.settings.language;
 
-		new Setting(containerEl).setName('KarMind').setHeading();
+		new Setting(containerEl).setName('Connection and workflow').setHeading();
 
 		new Setting(containerEl)
 			.setName(t(language, 'settingsUsageGuideName'))
@@ -123,7 +123,7 @@ export class KarMindSettingTab extends PluginSettingTab {
 			.setName(t(language, 'settingsModelName'))
 			.setDesc(t(language, 'settingsModelDesc'))
 			.addText(text => text
-				.setPlaceholder('gpt-4o-mini')
+					.setPlaceholder('Example: gpt-4o-mini')
 				.setValue(this.plugin.settings.model)
 				.onChange(async (value) => {
 					this.plugin.settings.model = value;
@@ -134,7 +134,7 @@ export class KarMindSettingTab extends PluginSettingTab {
 			.setName(t(language, 'settingsRawFolderName'))
 			.setDesc(t(language, 'settingsRawFolderDesc'))
 			.addText(text => text
-				.setPlaceholder('raw')
+					.setPlaceholder('Example: raw')
 				.setValue(this.plugin.settings.rawFolder)
 				.onChange(async (value) => {
 					this.plugin.settings.rawFolder = normalizePath(value || DEFAULT_SETTINGS.rawFolder);
@@ -145,7 +145,7 @@ export class KarMindSettingTab extends PluginSettingTab {
 			.setName(t(language, 'settingsWikiFolderName'))
 			.setDesc(t(language, 'settingsWikiFolderDesc'))
 			.addText(text => text
-				.setPlaceholder('wiki')
+					.setPlaceholder('Example: wiki')
 				.setValue(this.plugin.settings.wikiFolder)
 				.onChange(async (value) => {
 					this.plugin.settings.wikiFolder = normalizePath(value || DEFAULT_SETTINGS.wikiFolder);
@@ -156,7 +156,7 @@ export class KarMindSettingTab extends PluginSettingTab {
 			.setName(t(language, 'settingsSkillsFolderName'))
 			.setDesc(t(language, 'settingsSkillsFolderDesc'))
 			.addText(text => text
-				.setPlaceholder('skills')
+					.setPlaceholder('Example: skills')
 				.setValue(this.plugin.settings.skillsFolder)
 				.onChange(async (value) => {
 					this.plugin.settings.skillsFolder = normalizePath(value || DEFAULT_SETTINGS.skillsFolder);
